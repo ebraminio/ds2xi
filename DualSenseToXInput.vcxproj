@@ -338,58 +338,13 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Include\imgui\cpp\imgui.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_draw.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_impl_glfw.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_impl_opengl3.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_stdlib.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_tables.cpp" />
-    <ClCompile Include="Include\imgui\cpp\imgui_widgets.cpp" />
-    <ClCompile Include="src\ControllerIO\controllerIO.cpp" />
-    <ClCompile Include="src\GUI\Functions\Misc\functionality.cpp" />
-    <ClCompile Include="src\GUI\GUI.cpp" />
-    <ClCompile Include="src\GUI\Sub Menus\subMenus.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp" />
-    <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp" />
-    <ClCompile Include="src\User Settings\Game Profiles\gameProfile.cpp" />
-    <ClCompile Include="src\User Settings\Game Profiles\saveLoad.cpp" />
-    <ClCompile Include="src\User Settings\Lightbar\Lightbar.cpp" />
-    <ClCompile Include="src\User Settings\Macros\macro.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Include\imgui\header\GLFW\glfw3.h" />
-    <ClInclude Include="Include\imgui\header\GLFW\glfw3native.h" />
-    <ClInclude Include="Include\imgui\header\imconfig.h" />
-    <ClInclude Include="Include\imgui\header\imgui.h" />
-    <ClInclude Include="Include\imgui\header\imgui_impl_glfw.h" />
-    <ClInclude Include="Include\imgui\header\imgui_impl_opengl3.h" />
-    <ClInclude Include="Include\imgui\header\imgui_impl_opengl3_loader.h" />
-    <ClInclude Include="Include\imgui\header\imgui_internal.h" />
-    <ClInclude Include="Include\imgui\header\imgui_stdlib.h" />
-    <ClInclude Include="Include\imgui\header\imstb_rectpack.h" />
-    <ClInclude Include="Include\imgui\header\imstb_textedit.h" />
-    <ClInclude Include="Include\imgui\header\imstb_truetype.h" />
-    <ClInclude Include="Include\imgui\header\stb_image.h" />
     <ClInclude Include="resource1.h" />
-    <ClInclude Include="src\ControllerIO\controllerIO.h" />
-    <ClInclude Include="src\GUI\Functions\Misc\functionality.h" />
-    <ClInclude Include="src\GUI\GUI.h" />
-    <ClInclude Include="src\GUI\include.h" />
-    <ClInclude Include="src\GUI\Sub Menus\subMenus.h" />
-    <ClInclude Include="src\main.h" />
-    <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h" />
-    <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h" />
-    <ClInclude Include="src\User Settings\Game Profiles\gameProfile.h" />
-    <ClInclude Include="src\User Settings\Game Profiles\saveLoad.h" />
-    <ClInclude Include="src\User Settings\Lightbar\Lightbar.h" />
-    <ClInclude Include="src\User Settings\Macros\macro.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="PCXSense.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="CPP.HINT" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
