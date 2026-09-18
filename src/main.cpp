@@ -19,10 +19,6 @@ constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
 constexpr int DUALSENSEEDGE_PRODUCT_ID = 0x0df2;
 constexpr int DUALSHOCK4_PRODUCT_ID = 0x09CC;
 
-
-extern UCHAR rumble[2];
-extern unsigned char ptrCurrentTriggerProfile[8];
-
 struct RGB {
 	float colors[3]{}; //Red Green Blue
 	short int microhponeLed;
@@ -88,11 +84,11 @@ const uint32_t hashTable[256] = {
 };
 
 
-bool extern inline isControllerConnected(controller& inputReport);
+bool isControllerConnected(controller& inputReport);
 uint32_t computeCRC32(unsigned char* buffer, const size_t& len);
-static void sendDualsenseOutputReport(controller& x360Controller);
+void sendDualsenseOutputReport(controller& x360Controller);
 
-void inline getDualsenseInput(controller& x360Controller) {
+static void getDualsenseInput(controller& x360Controller) {
 
 	//bool readSuccess = ReadFile(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize, NULL, NULL);
 
@@ -212,11 +208,14 @@ static bool isDualsenseConnected(controller& x360Controller) {
 
 }
 
-bool inline isControllerConnected(controller& x360Controller) {
+LPVOID ptrController;
+LPVOID asyncThreadPointer = nullptr;
+UCHAR rumble[2]{};
+
+bool isControllerConnected(controller& x360Controller) {
 	x360Controller.isConnected = false;
 
 	//Stop output thread
-	extern LPVOID asyncThreadPointer;
 	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
 		delete asyncThreadPointer;
 		asyncThreadPointer = nullptr;
@@ -247,22 +246,6 @@ uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
 
 unsigned char outputHID[547]{};
 constexpr DWORD TITLE_SIZE = 1024;
-int emulator{};
-extern bool gameProfileSet;
-
-#define isSelectPressed (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) <  800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4))
-#define isStartPressed  (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) >= 800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5))
-
-BOOL inline static CALLBACK FindWindowBySubstr(HWND hwnd, LPARAM substring) {
-	TCHAR windowTitle[TITLE_SIZE];
-
-	if (GetWindowText(hwnd, windowTitle, TITLE_SIZE)) {
-		if (_tcsstr(windowTitle, LPCTSTR(substring)) != NULL)
-			return true;
-	}
-
-	return false;
-}
 
 bool profileOpen;
 bool lightbarOpen;
@@ -322,16 +305,6 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 
 }
 
-#define isSelectPressed (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) <  800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4))
-#define isStartPressed  (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) >= 800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5))
-
-LPVOID ptrController;
-LPVOID ptrController2;
-extern LPVOID asyncThreadPointer = nullptr;
-LPVOID ptrMacros;
-LPVOID ptrProfiles;
-extern UCHAR rumble[2]{};
-
 VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData) {
 	rumble[0] = SmallMotor;
 	rumble[1] = LargeMotor;
@@ -367,7 +340,7 @@ void zeroOutputReport() {
 	}
 }
 
-extern BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
+BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
 	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
 		reinterpret_cast<controller*>(ptrController)->threadStop = true;
 		delete asyncThreadPointer;
@@ -429,8 +402,6 @@ int main(int argc,char* argv[]) {
 		getDualsenseInput(x360Controller);
 
 		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, *reinterpret_cast<XUSB_REPORT*>(&x360Controller.ControllerState.Gamepad));
-
 	}
-
 	return 0;
 }
