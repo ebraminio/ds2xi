@@ -62,6 +62,7 @@ static bool isDualsenseConnected(controller& x360Controller) {
 		}
 	}
 
+	hid_set_nonblocking(x360Controller.deviceHandle, true);
 	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
 	if (x360Controller.hidOffset) { // Bluetooth
 		x360Controller.bufferSize = BT_PAYLOAD_BUFFER_SIZE + BT_CRC_BUFFER_SIZE;
@@ -167,11 +168,10 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 	hid_write(x360Controller.deviceHandle, outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 }
 
-static void getDualsenseInput(controller& x360Controller) {
+static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 	if (hid_read(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize) == -1) {
-		printf("%ls\n", hid_error(x360Controller.deviceHandle));
+		printf("%ls\n", hid_read_error(x360Controller.deviceHandle));
 		hid_close(x360Controller.deviceHandle);
-		//isControllerConnected(x360Controller);
 		return;
 	}
 
@@ -298,11 +298,16 @@ int main(int argc,char* argv[]) {
 	}
 
 	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getRumble, &x360Controller);
-	isDualsenseConnected(x360Controller);
+
+	uint64_t counter = 0;
 	while (true) {
+		++counter;
 		XInputGetState(0, &x360Controller.ControllerState);
-		getDualsenseInput(x360Controller);
-		sendDualsenseOutputReport(x360Controller);
+		if (x360Controller.deviceHandle) {
+			getDualsenseInput(x360Controller, counter);
+			sendDualsenseOutputReport(x360Controller);
+		}
+		else if (counter % 0xFFFF == 1) isDualsenseConnected(x360Controller);
 		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, *reinterpret_cast<XUSB_REPORT*>(&x360Controller.ControllerState.Gamepad));
 	}
 
