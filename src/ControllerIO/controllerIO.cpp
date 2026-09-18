@@ -111,8 +111,6 @@ BOOL inline static CALLBACK FindWindowBySubstr(HWND hwnd, LPARAM substring) {
 	return false;
 }
 
-void inline adaptiveTriggersProfile(bool& bluetooth, int& shortTriggers);
-
 void extern inline sendDualsenseOutputReport(controller& x360Controller) {
 	extern bool profileOpen;
 	extern bool lightbarOpen;
@@ -136,8 +134,6 @@ void extern inline sendDualsenseOutputReport(controller& x360Controller) {
 
 		outputHID[3 + x360Controller.hidOffset] = rumble[0] * rumbleEnabled + buttonMapping[19] * profileRumble; //Low Rumble
 		outputHID[4 + x360Controller.hidOffset] = rumble[1] * rumbleEnabled + buttonMapping[19] * profileRumble; //High Rumble
-
-		adaptiveTriggersProfile(x360Controller.hidOffset, x360Controller.shortTriggers);
 
 		switch (x360Controller.batteryLevel + lightbarOpen + gameProfileSet + profileEdit) { //Chooses Lightbar Profile, if any of those editors are open then it breaks and sets itself to the currently being edited profile
 		case 0: x360Controller.RGB[0].Index = 1; break;
@@ -346,96 +342,3 @@ void inline getDualsenseInput(controller& x360Controller) {
 	setButtons(x360Controller);
 
 }
-
-void inline adaptiveTriggersProfile(bool& hidOffset, int& shortTriggers) {
-	
-	if (gameProfileSet) {
-		shortTriggers = 0;
-		memcpy(&outputHID[11 + hidOffset], &ptrCurrentTriggerProfile, 7);
-		memcpy(&outputHID[22 + hidOffset], &ptrCurrentTriggerProfile, 7);
-		outputHID[20 + hidOffset] = ptrCurrentTriggerProfile[7];
-		outputHID[31 + hidOffset] = ptrCurrentTriggerProfile[7];
-		return;
-	}
-	
-	HWND foregroundWindow = GetForegroundWindow();
-
-	emulator = 1 * (FindWindowBySubstr(foregroundWindow, (LPARAM)L"yuzu")) + 2 * (FindWindowBySubstr(foregroundWindow, (LPARAM)L"Cemu")) + 3 * (FindWindowBySubstr(foregroundWindow, (LPARAM)L"Dolphin"));
-
-	switch (emulator) {
-	case 1: //Yuzu
-		shortTriggers = 190;
-		outputHID[11 + hidOffset] = 0x2;
-		outputHID[12 + hidOffset] = 30;
-		outputHID[13 + hidOffset] = 180;
-		outputHID[14 + hidOffset] = 50;
-
-		outputHID[22 + hidOffset] = 0x2;
-		outputHID[23 + hidOffset] = 23;
-		outputHID[24 + hidOffset] = 180;
-		outputHID[25 + hidOffset] = 50;
-
-		break;
-	case 2: // Cemu
-		shortTriggers = 0;
-		outputHID[11 + hidOffset] = 0x2;
-		outputHID[12 + hidOffset] = 30;
-		outputHID[13 + hidOffset] = 180;
-		outputHID[14 + hidOffset] = 50;
-
-		outputHID[22 + hidOffset] = 0x2;
-		outputHID[23 + hidOffset] = 23;
-		outputHID[24 + hidOffset] = 180;
-		outputHID[25 + hidOffset] = 50;
-
-		break;
-	case 3: //Dolphin
-
-		shortTriggers = 0;
-		outputHID[11 + hidOffset] = 0x2;
-		outputHID[12 + hidOffset] = 0x90;
-		outputHID[13 + hidOffset] = 0xA0;
-		outputHID[14 + hidOffset] = 0xFF;
-
-		outputHID[22 + hidOffset] = 0x2;
-		outputHID[23 + hidOffset] = 0x90;
-		outputHID[24 + hidOffset] = 0xA0;
-		outputHID[25 + hidOffset] = 0xFF;
-
-		break;
-	default:
-		//Else set Current Trigger Profile
-		shortTriggers = 0;
-		if (!gameProfileSet) break;
-
-		memcpy(&outputHID[11 + hidOffset], &ptrCurrentTriggerProfile, 7);
-		memcpy(&outputHID[22 + hidOffset], &ptrCurrentTriggerProfile, 7);
-		outputHID[20 + hidOffset] = ptrCurrentTriggerProfile[7];
-		outputHID[31 + hidOffset] = ptrCurrentTriggerProfile[7];
-		break;
-	}
-
-}
-
-//Useful data for later
-
-/*if (x360Controller.rainbow) {
-*
-* //static float Red{ 210 }, Green{}, Blue{ 90 };
-  //static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
-*
-			if (Red == 255) AddRed = -1;
-			if (Red == 0) AddRed = 1;
-			if (Green == 255) AddGreen = -1;
-			if (Green == 0) AddGreen = 1;
-			if (Blue == 255) AddBlue = -1;
-			if (Blue == 0) AddBlue = 1;
-
-			Red += 2.5f * AddRed;
-			Green += 2.5f * AddGreen;
-			Blue += 2.5f * AddBlue;
-
-			outputHID[45] = Red; //Red
-			outputHID[46] = Green; //Green
-			outputHID[47] = Blue; //Blue
-		}*/
