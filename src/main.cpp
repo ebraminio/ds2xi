@@ -15,12 +15,6 @@ constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
 constexpr int DUALSENSEEDGE_PRODUCT_ID = 0x0df2;
 constexpr int DUALSHOCK4_PRODUCT_ID = 0x09CC;
 
-struct RGB {
-	float colors[3]{}; //Red Green Blue
-	short int microhponeLed;
-	int Index;
-};
-
 constexpr unsigned USB_BUFFER_SIZE = 64;
 constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
 constexpr unsigned BT_CRC_BUFFER_SIZE = 4;
@@ -39,7 +33,7 @@ struct controller {
 
 	int bufferSize;
 	int shortTriggers{};
-	RGB RGB[10]{};
+	bool microphoneLed;
 
 	VIGEM_ERROR target;
 	hid_device* deviceHandle{ nullptr };
@@ -128,6 +122,8 @@ static void add_crc_to_buffer(unsigned char* outputHID) {
 	outputHID[BT_PAYLOAD_BUFFER_SIZE + 3] = ((crc & 0xFF000000) >> 24UL);
 }
 
+constexpr bool demo = true;
+
 static void sendDualsenseOutputReport(controller& x360Controller) {
 	unsigned char outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -142,12 +138,12 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 	outputHID[3 + x360Controller.hidOffset] = rumble[0]; // Low Rumble
 	outputHID[4 + x360Controller.hidOffset] = rumble[1]; // High Rumble
 
-	outputHID[9 + x360Controller.hidOffset] = x360Controller.RGB[x360Controller.RGB[0].Index].microhponeLed;
+	outputHID[9 + x360Controller.hidOffset] = x360Controller.microphoneLed;
 	outputHID[39 + x360Controller.hidOffset] = 0x02;
 	outputHID[42 + x360Controller.hidOffset] = 0x02;
 	outputHID[43 + x360Controller.hidOffset] = 0x02;
 
-	{
+	if (demo) {
 		static float Red{ 210 }, Green{}, Blue{ 90 };
 		static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
 		if (Red == 255) AddRed = -1;
@@ -216,6 +212,10 @@ static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 	//  1 << 5 => Right Function
 	//  1 << 6 => Left Paddle
 	//  1 << 7 => Right Paddle
+	if (demo) {
+		x360Controller.microphoneLed = x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 1);
+		x360Controller.microphoneLed = x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 2);
+	}
 
 	switch ((int)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f)) {
 	case 0: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
