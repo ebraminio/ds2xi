@@ -243,8 +243,13 @@ static void getDualsenseInput(controller& x360Controller) {
 
 	// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
 	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
-	// 1 << 1 => touch screen button
-	// 1 << 2 => mic button
+	// 1 << 1 => Touchpad Button
+	// 1 << 2 => Mic Button
+	// DualSense Edge:
+	//  1 << 4 => Left Function
+	//  1 << 5 => Right Function
+	//  1 << 6 => Left Paddle
+	//  1 << 7 => Right Paddle
 
 	switch ((int)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f)) {
 	case 0: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
