@@ -163,11 +163,8 @@ static void getDualsenseInput(controller& x360Controller) {
 		return;
 	}
 
-	// Hex 0x35 (USB) / 0x36 (Bluetooth) to get Battery
-	x360Controller.batteryLevel = (x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5;
-
-	//Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
-	x360Controller.batteryLevel = min(x360Controller.batteryLevel, 100);
+	// Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
+	x360Controller.batteryLevel = min((x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5, 100);
 
 	x360Controller.ControllerState.Gamepad.sThumbLX = ((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768);
 	x360Controller.ControllerState.Gamepad.sThumbLY = (32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257));
