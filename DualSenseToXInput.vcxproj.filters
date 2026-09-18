@@ -81,9 +81,6 @@
     <ClCompile Include="src\ControllerIO\controllerIO.cpp">
       <Filter>Source Files\Backend\Controller\Controller IO</Filter>
     </ClCompile>
-    <ClCompile Include="src\Misc\util.cpp">
-      <Filter>Source Files\Backend\Debug</Filter>
-    </ClCompile>
     <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>
     </ClCompile>
@@ -145,9 +142,6 @@
     </ClInclude>
     <ClInclude Include="src\ControllerIO\controllerIO.h">
       <Filter>Source Files\Backend\Controller\Controller IO</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Misc\util.h">
-      <Filter>Source Files\Backend\Debug</Filter>
     </ClInclude>
     <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>

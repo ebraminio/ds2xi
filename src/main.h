@@ -1,8 +1,6 @@
 #pragma once
 #ifdef NDEBUG
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
-#else
-#include "misc\util.h"
 #endif
 #include "GUI\GUI.h"
 #include "User Settings/Macros/macro.h"

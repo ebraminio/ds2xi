@@ -39,7 +39,6 @@ struct controller {
 	int shortTriggers{};
 
 	RGB RGB[10]{};
-	//bool rainbow{};
 	
 	VIGEM_ERROR target;
 	hid_device* deviceHandle{nullptr};

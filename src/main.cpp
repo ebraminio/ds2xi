@@ -19,6 +19,72 @@ static int initializeFakeController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& tar
 	return 0;
 }
 
+void debugData(controller& x360Controller) {
+
+	while (true) {
+
+		Sleep(20);
+		system("cls"); //Clear console
+
+		std::cout << "\nLeftJoystick Horizontal Value: " << (int)((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768) << '\n';
+		std::cout << "LeftJoystick Vertical Value: " << (int)(32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257)) << '\n';
+		std::cout << "RightJoystick Horizontal Value: " << (int)((x360Controller.inputBuffer[3 + x360Controller.hidOffset] * 257) - 32768) << '\n';
+		std::cout << "RightJoystick Vertical Value: " << (int)(32767 - (x360Controller.inputBuffer[4 + x360Controller.hidOffset] * 257)) << '\n';
+		std::cout << "Left Trigger Value: " << (int)x360Controller.ControllerState.Gamepad.bLeftTrigger << '\n';
+		std::cout << "Right Trigger Value: " << (int)x360Controller.ControllerState.Gamepad.bRightTrigger << '\n';
+		std::cout << "Battery Level: " << x360Controller.batteryLevel << "%\n";
+		std::cout << "Buttons Reading: " << x360Controller.ControllerState.Gamepad.wButtons << "\n";
+
+		switch ((int)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f)) {
+
+		case 0: printf("Dpad Up\n"); break;
+
+		case 1: printf("Dpad Up and Dpad Right\n"); break;
+
+		case 2: printf("Dpad Right\n"); break;
+
+		case 3: printf("Dpad Down and Dpad Right\n"); break;
+
+		case 4: printf("Dpad Down\n"); break;
+
+		case 5: printf("Dpad Down and Dpad Left\n"); break;
+
+		case 6: printf("Dpad Left\n"); break;
+
+		case 7: printf("Dpad Up and Dpad Left\n"); break;
+		}
+
+		if ((bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 4))) printf("Square Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 5))) printf("Cross Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 6))) printf("Circle Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 7))) printf("Triangle Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 0))) printf("L1 Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 1))) printf("R1 Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4))) printf("Select Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5))) printf("Start Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 6))) printf("L3 Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 7))) printf("R3 Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 0))) printf("Sony/Home Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 1))) printf("Touchpad Button\n");
+
+		if ((bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 2))) printf("Mic Button\n");
+
+		if (!x360Controller.isConnected)
+			printf("Failed to get device state\n");
+	}
+}
+
 int main(int argc,char* argv[]) {
 	currentDirectory = std::filesystem::path(argv[0]).parent_path().string();
 #ifdef NDEBUG
@@ -29,7 +95,6 @@ int main(int argc,char* argv[]) {
 	
 	//Initialize Fake Controller
 	controller x360Controller{};
-	//controller x360Controller2{};
 
 	std::vector<Macros> Macro;
 	std::vector<gameProfile> gameProfiles;
@@ -59,7 +124,7 @@ int main(int argc,char* argv[]) {
 	//std::thread(secondController,std::ref(x360Controller2)).detach();
 
 #if _DEBUG
-	//std::thread(debugData, std::ref(x360Controller)).detach(); // Displays controller info
+	std::thread(debugData, std::ref(x360Controller)).detach(); // Displays controller info
 #endif
 
 	ptrController = &x360Controller;
@@ -82,19 +147,3 @@ int main(int argc,char* argv[]) {
 
 	return 0;
 }
-
-
-//Should fix performance
-
-#pragma warning(disable:4073) // initializers put in library initialization area
-#pragma init_seg(lib)
-
-#if _MSC_VER < 2200
-struct VS2013_threading_fix
-{
-	VS2013_threading_fix()
-	{
-		_Cnd_do_broadcast_at_thread_exit();
-	}
-} threading_fix;
-#endif
