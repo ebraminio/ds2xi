@@ -13,7 +13,6 @@
 #include "User Settings/Game Profiles/saveLoad.h"
 #include "User Settings/Lightbar/Lightbar.h"
 #include "ControllerIO/Gyro/gyro.h"
-//#include "ControllerIO/Device Hiding/deviceHiding.h"
 #include <thread>
 #include <format>
 
