@@ -94,7 +94,6 @@ uint32_t computeCRC32(unsigned char* buffer, const size_t& len);
 void extern inline sendDualsenseOutputReport(controller& x360Controller);
 void extern inline getDualsenseInput(controller& inputReport);
 void extern inline getDualShock4Input(controller& x360Controller);
-int initializeFakeController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client);
 
 
 

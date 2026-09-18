@@ -36,6 +36,21 @@ extern bool gyroEnabled;
 //
 //}
 
+static int initializeFakeController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client) {
+
+	if (client == nullptr) return -1;
+
+	const auto retval = vigem_connect(client);
+
+	if (!VIGEM_SUCCESS(retval)) return -1;
+
+	emulateX360 = vigem_target_x360_alloc();
+
+	target = vigem_target_add(client, emulateX360);
+
+	return 0;
+}
+
 int main(int argc,char* argv[]) {
 	currentDirectory = std::filesystem::path(argv[0]).parent_path().string();
 #ifdef NDEBUG

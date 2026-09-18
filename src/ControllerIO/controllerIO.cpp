@@ -2,7 +2,6 @@
 #include <tlhelp32.h>
 #include "User Settings/Adaptive Triggers/Adaptive Triggers.h"
 #include "User Settings/Game Profiles/gameProfile.h"
-#include "Controller Connections/controllerConnections.h"
 #include "Dualsense/dualsense.h"
 #include "Dualshock4/dualshock4.h"
 #include "thread"
@@ -14,6 +13,83 @@
 
 
 //#define boolSetter(x,y,operatorA,operatorB) x * (x operatorA y) + y * (y operatorB x);
+
+static bool isDualShock4Connected(controller& x360Controller) {
+	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSHOCK4_PRODUCT_ID, NULL);
+	if (x360Controller.deviceHandle == nullptr) {
+		printf("%ls\n", hid_error(x360Controller.deviceHandle));
+		return false;
+	}
+
+	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
+	x360Controller.isConnected = true;
+
+	if (x360Controller.hidOffset) { //Bluetooth
+		x360Controller.hidOffset = 0;
+		x360Controller.bufferSize = 547;
+		x360Controller.inputBuffer[0] = 0x11; //Data report code
+		return true;
+	}
+	//USB
+
+
+	x360Controller.hidOffset = 1; //Usb has a 2 offset from bluetooth
+	x360Controller.bufferSize = 64;
+	x360Controller.inputBuffer[0] = 0x01; //Data report code
+	return true;
+
+}
+
+static bool isDualsenseConnected(controller& x360Controller) {
+
+	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
+
+	if (x360Controller.deviceHandle == nullptr) {
+		printf("%ls\n", hid_error(x360Controller.deviceHandle));
+		return false;
+	}
+
+	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
+	x360Controller.isConnected = true;
+
+	if (x360Controller.hidOffset) { //Bluetooth
+		x360Controller.bufferSize = 78;
+		x360Controller.inputBuffer[0] = 0x31; //Data report code
+		return true;
+	}
+	//USB
+
+	//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
+
+	x360Controller.bufferSize = 64;
+	x360Controller.inputBuffer[0] = 0x01; //Data report code
+	return true;
+
+}
+
+static bool isDualsenseEdgeConnected(controller& x360Controller) {
+
+	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
+
+	if (x360Controller.deviceHandle == nullptr) {
+		printf("%ls\n", hid_error(x360Controller.deviceHandle));
+		return false;
+	}
+
+	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
+
+	x360Controller.isConnected = true;
+
+	if (x360Controller.hidOffset) { //Bluetooth
+		x360Controller.bufferSize = 78;
+		x360Controller.inputBuffer[0] = 0x31; //Data report code
+		return true;
+	}
+	//USB
+	x360Controller.bufferSize = 64;
+	x360Controller.inputBuffer[0] = 0x01; //Data report code
+	return true;
+}
 
 bool inline isControllerConnected(controller& x360Controller) {
 	x360Controller.isConnected = false;
