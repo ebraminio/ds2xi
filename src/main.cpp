@@ -1,16 +1,11 @@
 #ifdef NDEBUG
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
-#include <string>
 #include <windows.h>
 #include <Xinput.h>
 #include "ViGEm/Client.h"
 #include <hidapi.h>
-#include <vector>
 #include <thread>
-#include <format>
-#include <tlhelp32.h>
-#include <tchar.h>
 
 
 constexpr int SONY_VENDOR_ID = 0x054c;
