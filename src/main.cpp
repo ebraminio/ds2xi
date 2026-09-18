@@ -33,14 +33,12 @@ struct controller {
 
 	int bufferSize;
 	int shortTriggers{};
-
 	RGB RGB[10]{};
 
 	VIGEM_ERROR target;
 	hid_device* deviceHandle{ nullptr };
-};
-LPVOID ptrController;
-LPVOID asyncThreadPointer = nullptr;
+} *ptrController = nullptr;
+std::thread *asyncThreadPointer = nullptr;
 UCHAR rumble[2]{};
 unsigned char outputHID[547]{};
 constexpr DWORD TITLE_SIZE = 1024;
@@ -179,7 +177,7 @@ static bool isControllerConnected(controller& x360Controller) {
 	x360Controller.isConnected = false;
 
 	//Stop output thread
-	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
+	if (asyncThreadPointer != nullptr) {
 		delete asyncThreadPointer;
 		asyncThreadPointer = nullptr;
 	}
@@ -190,7 +188,7 @@ static bool isControllerConnected(controller& x360Controller) {
 		if (isDualsenseConnected(x360Controller)) {
 			x360Controller.threadStop = false;
 			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
-			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
+			asyncThreadPointer->detach();
 			return true;
 		}
 	}
@@ -295,7 +293,7 @@ VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeM
 
 void zeroOutputReport() {
 	unsigned char outputHID[547]{};
-	if (reinterpret_cast<controller*>(ptrController)->hidOffset) {
+	if (ptrController->hidOffset) {
 		ZeroMemory(outputHID, 547);
 
 		outputHID[0] = 0x31;
@@ -310,7 +308,7 @@ void zeroOutputReport() {
 		outputHID[76] = ((crc & 0x00FF0000) >> 16UL);
 		outputHID[77] = ((crc & 0xFF000000) >> 24UL);
 
-		WriteFile(reinterpret_cast<controller*>(ptrController)->deviceHandle, outputHID, 547, NULL, NULL);
+		WriteFile(ptrController->deviceHandle, outputHID, 547, NULL, NULL);
 	}
 	else {
 		ZeroMemory(outputHID, 547);
@@ -319,23 +317,23 @@ void zeroOutputReport() {
 		outputHID[1] = 0x03 | 0x04 | 0x08;
 		outputHID[2] = 0x55;
 
-		WriteFile(reinterpret_cast<controller*>(ptrController)->deviceHandle, outputHID, 64, NULL, NULL);
+		WriteFile(ptrController->deviceHandle, outputHID, 64, NULL, NULL);
 	}
 }
 
 BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
-	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
-		reinterpret_cast<controller*>(ptrController)->threadStop = true;
+	if (asyncThreadPointer != nullptr) {
+		ptrController->threadStop = true;
 		delete asyncThreadPointer;
 		asyncThreadPointer = nullptr;
 	}
 	zeroOutputReport();
 
 	//Cleanup
-	vigem_target_remove(reinterpret_cast<controller*>(ptrController)->client, reinterpret_cast<controller*>(ptrController)->emulateX360);
-	vigem_target_free(reinterpret_cast<controller*>(ptrController)->emulateX360);
-	vigem_disconnect(reinterpret_cast<controller*>(ptrController)->client);
-	vigem_free(reinterpret_cast<controller*>(ptrController)->client);
+	vigem_target_remove(ptrController->client, ptrController->emulateX360);
+	vigem_target_free(ptrController->emulateX360);
+	vigem_disconnect(ptrController->client);
+	vigem_free(ptrController->client);
 	_exit(NULL);
 	return TRUE;
 }
