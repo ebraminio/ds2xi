@@ -25,6 +25,7 @@ constexpr unsigned USB_BUFFER_SIZE = 64;
 constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
 constexpr unsigned BT_CRC_BUFFER_SIZE = 4;
 constexpr unsigned BT_BUFFER_SIZE = 547;
+constexpr unsigned USB_REPORT_ID = 0x01;
 constexpr unsigned BT_REPORT_ID = 0x31;
 
 struct controller {
@@ -67,7 +68,7 @@ static bool isDualsenseConnected(controller& x360Controller) {
 		x360Controller.inputBuffer[0] = BT_REPORT_ID;
 	} else {
 		x360Controller.bufferSize = USB_BUFFER_SIZE;
-		x360Controller.inputBuffer[0] = 0x01; // Data report code
+		x360Controller.inputBuffer[0] = USB_REPORT_ID;
 	}
 	return true;
 }
@@ -145,10 +146,21 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 	outputHID[42 + x360Controller.hidOffset] = 0x02;
 	outputHID[43 + x360Controller.hidOffset] = 0x02;
 
-
-	for (int i = 0; i < 3; i++) {
-		outputHID[45 + x360Controller.hidOffset + i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i] * 255;
-		x360Controller.RGB[0].colors[i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i];
+	{
+		static float Red{ 210 }, Green{}, Blue{ 90 };
+		static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
+		if (Red == 255) AddRed = -1;
+		if (Red == 0) AddRed = 1;
+		if (Green == 255) AddGreen = -1;
+		if (Green == 0) AddGreen = 1;
+		if (Blue == 255) AddBlue = -1;
+		if (Blue == 0) AddBlue = 1;
+		Red += .5f * AddRed;
+		Green += .5f * AddGreen;
+		Blue += .5f * AddBlue;
+		outputHID[45 + x360Controller.hidOffset] = Red;
+		outputHID[46 + x360Controller.hidOffset] = Green;
+		outputHID[47 + x360Controller.hidOffset] = Blue;
 	}
 	if (x360Controller.hidOffset)
 		add_crc_to_buffer(outputHID);
@@ -289,10 +301,8 @@ int main(int argc,char* argv[]) {
 	isDualsenseConnected(x360Controller);
 	while (true) {
 		XInputGetState(0, &x360Controller.ControllerState);
-
 		getDualsenseInput(x360Controller);
 		sendDualsenseOutputReport(x360Controller);
-
 		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, *reinterpret_cast<XUSB_REPORT*>(&x360Controller.ControllerState.Gamepad));
 	}
 
