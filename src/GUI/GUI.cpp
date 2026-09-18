@@ -4,7 +4,6 @@
 #include "User Settings/Lightbar/Lightbar.h"
 
 bool rumbleWindow = false;
-extern bool gyroEnabled = false;
 extern bool debugOpen = false;
 extern bool macroOpen = false;
 extern bool profileOpen = false;
@@ -169,11 +168,6 @@ void inline topBar(const GLuint* Images, const float& displaySizeX,const float* 
 
 
     if (ImGui::BeginCombo("##Controller Settings", "Controller Settings", ImGuiComboFlags_WidthFitPreview | ImGuiComboFlags_PopupAlignLeft)) {
-
-     //   if (ImGui::Selectable("##Gyro Support")) gyroEnabled = !gyroEnabled;
-     //   ImGui::SameLine(30);
-    //    ImGui::Text("Gyro Support");
-
         if (ImGui::Selectable("##Rumble Test")) rumbleWindow = true;
         ImGui::SameLine(30);
         ImGui::Text("Rumble Settings");
