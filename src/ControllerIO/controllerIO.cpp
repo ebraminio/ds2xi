@@ -15,8 +15,6 @@
 
 //#define boolSetter(x,y,operatorA,operatorB) x * (x operatorA y) + y * (y operatorB x);
 
-extern "C" int returnSmaller(int x); //Assembly Function in src/Assembly Functions/assemblyFunctions.s
-
 bool inline isControllerConnected(controller& x360Controller) {
 	x360Controller.isConnected = false;
 

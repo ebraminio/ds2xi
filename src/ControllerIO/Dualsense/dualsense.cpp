@@ -11,8 +11,6 @@ extern bool gameProfileSet;
 #define isSelectPressed (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) <  800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4))
 #define isStartPressed  (buttonMapping[11])*(!(x360Controller.inputBuffer[33 + x360Controller.hidOffset] & (1 << 7)) & ((((x360Controller.inputBuffer[35 + x360Controller.hidOffset] & 0x0F) << 8) | (x360Controller.inputBuffer[34 + x360Controller.hidOffset])) >= 800)) ^ (x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5))
 
-extern "C" int returnSmaller(int x); //Assembly Function in src/Assembly Functions/assemblyFunctions.s
-
 BOOL inline static CALLBACK FindWindowBySubstr(HWND hwnd, LPARAM substring) {
 	TCHAR windowTitle[TITLE_SIZE];
 
@@ -240,9 +238,8 @@ void inline getDualsenseInput(controller& x360Controller) {
 																											  because if bluetooth == true then bluetooth == 1 so we can just add bluetooth
 																											  to the hex value of USB to get the battery reading
 																										   */
-
-																										   //Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
-	x360Controller.batteryLevel = returnSmaller(x360Controller.batteryLevel);
+	//Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
+	x360Controller.batteryLevel = min(x360Controller.batteryLevel, 100);
 
 	x360Controller.ControllerState.Gamepad.sThumbLX = ((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768);
 	x360Controller.ControllerState.Gamepad.sThumbLY = (32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257));

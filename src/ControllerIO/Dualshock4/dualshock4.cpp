@@ -8,7 +8,6 @@ extern bool gameProfileSet;
 #define isSelectPressed (buttonMapping[11])*(!(x360Controller.inputBuffer[37- x360Controller.hidOffset * 2] & (1 << 7)) & ((((x360Controller.inputBuffer[39- x360Controller.hidOffset * 2] & 0x0f) << 8) | (x360Controller.inputBuffer[38- x360Controller.hidOffset * 2])) <  800)) ^ (x360Controller.inputBuffer[8- x360Controller.hidOffset * 2] & (1 << 4))
 #define isStartPressed  (buttonMapping[11])*(!(x360Controller.inputBuffer[37- x360Controller.hidOffset * 2] & (1 << 7)) & ((((x360Controller.inputBuffer[39- x360Controller.hidOffset * 2] & 0x0F) << 8) | (x360Controller.inputBuffer[38- x360Controller.hidOffset * 2])) >= 800)) ^ (x360Controller.inputBuffer[8- x360Controller.hidOffset * 2] & (1 << 5))
 
-extern "C" int returnSmaller(int x); //Assembly Function in src/Assembly Functions/assemblyFunctions.s
 constexpr DWORD TITLE_SIZE = 1024;
 void inline static setButtons(controller& x360Controller) {
 
@@ -137,7 +136,7 @@ void inline getDualShock4Input(controller& x360Controller) {
 
 	x360Controller.batteryLevel = (x360Controller.inputBuffer[32 - x360Controller.hidOffset * 2] & 15) * 12.5;
 
-	x360Controller.batteryLevel = returnSmaller(x360Controller.batteryLevel);
+	x360Controller.batteryLevel = min(x360Controller.batteryLevel, 100);
 
 	x360Controller.ControllerState.Gamepad.sThumbLX = ((x360Controller.inputBuffer[3 - x360Controller.hidOffset * 2] * 257) - 32768);
 	x360Controller.ControllerState.Gamepad.sThumbLY = (32767 - (x360Controller.inputBuffer[4 - x360Controller.hidOffset * 2] * 257));
