@@ -3,37 +3,6 @@ extern std::string Version = "PCXSenseBeta.0.9.4";
 
 extern void (*getInputs)(controller& x360Controller) = &getDualsenseInput;
 extern std::string currentDirectory{};
-//void inline secondcontroller(controller& secondcontroller) {
-//	secondcontroller.client = vigem_alloc();
-//	if (secondcontroller.client == null) {
-//		if (messagebox(null, l"the app couldn't start, please install vigembusdriver ,if this error persists please open an issue on github", l"vigem bus", mb_yesno | mb_taskmodal) == idno) return;
-//		shellexecute(0, 0, l"https://github.com/nefarius/vigembus/releases/tag/v1.22.0", 0, 0, sw_show);
-//		return;
-//	}
-//
-//	if (initializefakecontroller(secondcontroller.emulatex360, secondcontroller.target, secondcontroller.client) != 0) {
-//		if (messagebox(null, l"the app couldn't start, please install vigembusdriver ,if this error persists please open an issue on github", l"vigem bus", mb_yesno | mb_taskmodal) == idno) return;
-//		shellexecute(0, 0, l"https://github.com/nefarius/vigembus/releases/tag/v1.22.0", 0, 0, sw_show);
-//		return;
-//	}
-//
-//	if (!isdualshoch4connected(secondcontroller))
-//		return;
-//
-//	getinputs = &getdualshock4input;
-//	std::thread* asyncthreadpointer = new std::thread(senddualshock4outputreport, std::ref(secondcontroller));
-//	asyncthreadpointer->detach();
-//	
-//	while(true){
-//
-//		xinputgetstate(1, &secondcontroller.controllerstate);
-//
-//		getinputs(secondcontroller);
-//
-//		vigem_target_x360_update(secondcontroller.client, secondcontroller.emulatex360, *reinterpret_cast<xusb_report*>(&secondcontroller.controllerstate.gamepad));
-//	}
-//
-//}
 
 static int initializeFakeController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client) {
 

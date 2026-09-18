@@ -6,12 +6,6 @@
 #include <hidapi.h>
 #include <vector>
 
-#ifdef _DEBUG
-#define EXPERIMENTAL true
-#else
-#define EXPERIMENTAL false
-#endif
-
 
 constexpr int SONY_VENDOR_ID = 0x054c;
 

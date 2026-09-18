@@ -3,9 +3,7 @@
 #include "User Settings/Adaptive Triggers/Adaptive Triggers.h"
 #include "User Settings/Game Profiles/gameProfile.h"
 #include "Dualsense/dualsense.h"
-#include "Dualshock4/dualshock4.h"
 #include "thread"
-#define DEBUG(x) do ; while(0)
 
 
 //#define boolSetter(x,y,operatorA,operatorB) x * (x operatorA y) + y * (y operatorB x);
@@ -102,24 +100,10 @@ bool inline isControllerConnected(controller& x360Controller) {
 
 		extern void (*getInputs)(controller & x360Controller);
 
-		if (isDualsenseConnected(x360Controller)) {
+		if (isDualsenseConnected(x360Controller) || isDualsenseEdgeConnected(x360Controller)) {
 			x360Controller.threadStop = false;
 			getInputs = &getDualsenseInput;
 			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
-			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
-			return true;
-		}
-		if (isDualsenseEdgeConnected(x360Controller)) {
-			x360Controller.threadStop = false;
-			getInputs = &getDualsenseInput;
-			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
-			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
-			return true;
-		}
-		if (isDualShock4Connected(x360Controller)) {
-			x360Controller.threadStop = false;
-			getInputs = &getDualShock4Input;
-			asyncThreadPointer = new std::thread(sendDualShock4OutputReport, std::ref(x360Controller));
 			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
 			return true;
 		}
