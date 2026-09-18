@@ -20,8 +20,12 @@ struct RGB {
 	int Index;
 };
 
+constexpr unsigned USB_BUFFER_SIZE = 64;
+constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
+constexpr unsigned BT_BUFFER_SIZE = 547;
+
 struct controller {
-	unsigned char inputBuffer[574]{};
+	unsigned char inputBuffer[574]{}; // Maybe should be BT_BUFFER_SIZE?
 	bool hidOffset;
 	bool isConnected{ false };
 	bool threadStop{ false };
@@ -40,12 +44,38 @@ struct controller {
 } *ptrController = nullptr;
 std::thread *asyncThreadPointer = nullptr;
 UCHAR rumble[2]{};
-unsigned char outputHID[547]{};
 constexpr DWORD TITLE_SIZE = 1024;
 bool profileOpen;
 bool lightbarOpen;
 bool profileEdit;
 bool rumbleEnabled;
+
+static bool isDualsenseConnected(controller& x360Controller) {
+	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
+
+	if (x360Controller.deviceHandle == nullptr) {
+		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
+		if (x360Controller.deviceHandle == nullptr) {
+			printf("%ls\n", hid_error(x360Controller.deviceHandle));
+			return false;
+		}
+	}
+
+	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
+	x360Controller.isConnected = true;
+
+	if (x360Controller.hidOffset) { //Bluetooth
+		x360Controller.bufferSize = 78;
+		x360Controller.inputBuffer[0] = 0x31; //Data report code
+	}
+	else {
+		//USB
+		//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
+		x360Controller.bufferSize = USB_BUFFER_SIZE;
+		x360Controller.inputBuffer[0] = 0x01; //Data report code
+	}
+	return true;
+}
 
 const UINT32 crcSeed = 0xeada2d49;
 
@@ -84,34 +114,6 @@ const uint32_t hashTable[256] = {
 	0x616495a3, 0x1663a535, 0x8f6af48f, 0xf86dc419, 0x660951ba, 0x110e612c, 0x88073096, 0xff000000,
 };
 
-static bool isDualsenseConnected(controller& x360Controller) {
-	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
-
-	if (x360Controller.deviceHandle == nullptr) {
-		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
-		if (x360Controller.deviceHandle == nullptr) {
-			printf("%ls\n", hid_error(x360Controller.deviceHandle));
-			return false;
-		}
-	}
-
-	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
-	x360Controller.isConnected = true;
-
-	if (x360Controller.hidOffset) { //Bluetooth
-		x360Controller.bufferSize = 78;
-		x360Controller.inputBuffer[0] = 0x31; //Data report code
-		return true;
-	}
-	//USB
-
-	//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
-
-	x360Controller.bufferSize = 64;
-	x360Controller.inputBuffer[0] = 0x01; //Data report code
-	return true;
-}
-
 uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
 {
 	UINT32 result = crcSeed;
@@ -122,12 +124,22 @@ uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
 	return result;
 }
 
+static void add_crc_to_buffer(unsigned char* outputHID) {
+	outputHID[0] = 0x31; // BT Report ID
+	const UINT32 crc = computeCRC32(outputHID, BT_PAYLOAD_BUFFER_SIZE);
+	outputHID[BT_PAYLOAD_BUFFER_SIZE] = crc & 0x000000FF;
+	outputHID[BT_PAYLOAD_BUFFER_SIZE + 1] = ((crc & 0x0000FF00) >> 8UL);
+	outputHID[BT_PAYLOAD_BUFFER_SIZE + 2] = ((crc & 0x00FF0000) >> 16UL);
+	outputHID[BT_PAYLOAD_BUFFER_SIZE + 3] = ((crc & 0xFF000000) >> 24UL);
+}
+
 static void sendDualsenseOutputReport(controller& x360Controller) {
+	unsigned char outputHID[BT_BUFFER_SIZE];
 	while (true) {
 
 		Sleep(4);
 
-		ZeroMemory(outputHID, 547);
+		ZeroMemory(outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 
 		//USB Report ID or BT additional Flag
 		outputHID[0 + x360Controller.hidOffset] = 0x02;
@@ -154,22 +166,9 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 
 		//Send Output Report
 		if (x360Controller.threadStop) return;
-
-		if (x360Controller.hidOffset) {
-			outputHID[0] = 0x31; // BT Report ID
-
-			const UINT32 crc = computeCRC32(outputHID, 74);
-
-			outputHID[74] = (crc & 0x000000FF);
-			outputHID[75] = ((crc & 0x0000FF00) >> 8UL);
-			outputHID[76] = ((crc & 0x00FF0000) >> 16UL);
-			outputHID[77] = ((crc & 0xFF000000) >> 24UL);
-
-			hid_write(x360Controller.deviceHandle, outputHID, 547);
-			continue;
-		}
-		//USB
-		hid_write(x360Controller.deviceHandle, outputHID, 64);
+		if (x360Controller.hidOffset)
+			add_crc_to_buffer(outputHID);
+		hid_write(x360Controller.deviceHandle, outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 	}
 }
 
@@ -297,33 +296,14 @@ VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeM
 }
 
 void zeroOutputReport() {
-	unsigned char outputHID[547]{};
-	if (ptrController->hidOffset) {
-		ZeroMemory(outputHID, 547);
-
-		outputHID[0] = 0x31;
-		outputHID[1] = 0x02;
-		outputHID[2] = 0x03 | 0x04 | 0x08;
-		outputHID[3] = 0x55;
-
-		const UINT32 crc = computeCRC32(outputHID, 74);
-
-		outputHID[74] = (crc & 0x000000FF);
-		outputHID[75] = ((crc & 0x0000FF00) >> 8UL);
-		outputHID[76] = ((crc & 0x00FF0000) >> 16UL);
-		outputHID[77] = ((crc & 0xFF000000) >> 24UL);
-
-		WriteFile(ptrController->deviceHandle, outputHID, 547, NULL, NULL);
-	}
-	else {
-		ZeroMemory(outputHID, 547);
-
-		outputHID[0] = 0x02;
-		outputHID[1] = 0x03 | 0x04 | 0x08;
-		outputHID[2] = 0x55;
-
-		WriteFile(ptrController->deviceHandle, outputHID, 64, NULL, NULL);
-	}
+	unsigned char outputHID[BT_BUFFER_SIZE];
+	ZeroMemory(outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	outputHID[0 + ptrController->hidOffset] = 0x02;
+	outputHID[1 + ptrController->hidOffset] = 0x03 | 0x04 | 0x08;
+	outputHID[2 + ptrController->hidOffset] = 0x55;
+	if (ptrController->hidOffset)
+		add_crc_to_buffer(outputHID);
+	WriteFile(ptrController->deviceHandle, outputHID, ptrController->hidOffset ? sizeof(outputHID) : USB_BUFFER_SIZE, NULL, NULL);
 }
 
 BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
