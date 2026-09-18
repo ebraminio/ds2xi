@@ -43,9 +43,6 @@
     <Filter Include="Source Files\FrontEnd\GUI\Functionality\Sub Menus">
       <UniqueIdentifier>{5875696c-e945-4e34-842b-b8730ff7f510}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\Backend\Controller\Controller IO\Dualsense">
-      <UniqueIdentifier>{b5b6683c-687a-40ba-aad6-a32d6ddea664}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Source Files\Backend\Debug">
       <UniqueIdentifier>{ea1ba039-592b-47ec-934f-e7f6e2324a80}</UniqueIdentifier>
     </Filter>
@@ -129,9 +126,6 @@
     <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
     </ClCompile>
-    <ClCompile Include="src\ControllerIO\Dualsense\dualsense.cpp">
-      <Filter>Source Files\Backend\Controller\Controller IO\Dualsense</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource1.h">
@@ -214,9 +208,6 @@
     </ClInclude>
     <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
-    </ClInclude>
-    <ClInclude Include="src\ControllerIO\Dualsense\dualsense.h">
-      <Filter>Source Files\Backend\Controller\Controller IO\Dualsense</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
