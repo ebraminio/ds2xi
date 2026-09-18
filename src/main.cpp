@@ -21,7 +21,6 @@ struct RGB {
 };
 
 struct controller {
-
 	unsigned char inputBuffer[574]{};
 	bool hidOffset;
 	bool isConnected{ false };
@@ -40,6 +39,15 @@ struct controller {
 	VIGEM_ERROR target;
 	hid_device* deviceHandle{ nullptr };
 };
+LPVOID ptrController;
+LPVOID asyncThreadPointer = nullptr;
+UCHAR rumble[2]{};
+unsigned char outputHID[547]{};
+constexpr DWORD TITLE_SIZE = 1024;
+bool profileOpen;
+bool lightbarOpen;
+bool profileEdit;
+bool rumbleEnabled;
 
 const UINT32 crcSeed = 0xeada2d49;
 
@@ -78,10 +86,115 @@ const uint32_t hashTable[256] = {
 	0x616495a3, 0x1663a535, 0x8f6af48f, 0xf86dc419, 0x660951ba, 0x110e612c, 0x88073096, 0xff000000,
 };
 
+static bool isDualsenseConnected(controller& x360Controller) {
+	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
 
-bool isControllerConnected(controller& inputReport);
-uint32_t computeCRC32(unsigned char* buffer, const size_t& len);
-void sendDualsenseOutputReport(controller& x360Controller);
+	if (x360Controller.deviceHandle == nullptr) {
+		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
+		if (x360Controller.deviceHandle == nullptr) {
+			printf("%ls\n", hid_error(x360Controller.deviceHandle));
+			return false;
+		}
+	}
+
+	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
+	x360Controller.isConnected = true;
+
+	if (x360Controller.hidOffset) { //Bluetooth
+		x360Controller.bufferSize = 78;
+		x360Controller.inputBuffer[0] = 0x31; //Data report code
+		return true;
+	}
+	//USB
+
+	//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
+
+	x360Controller.bufferSize = 64;
+	x360Controller.inputBuffer[0] = 0x01; //Data report code
+	return true;
+}
+
+uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
+{
+	UINT32 result = crcSeed;
+	for (size_t i = 0; i < len; i++)
+		// Compute crc
+		result = hashTable[((unsigned char)result) ^ ((unsigned char)buffer[i])] ^ (result >> 8);
+	// Return result
+	return result;
+}
+
+static void sendDualsenseOutputReport(controller& x360Controller) {
+	while (true) {
+
+		Sleep(4);
+
+		ZeroMemory(outputHID, 547);
+
+		//USB Report ID or BT additional Flag
+		outputHID[0 + x360Controller.hidOffset] = 0x02;
+
+		//Trigger Flags
+		outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
+		outputHID[2 + x360Controller.hidOffset] = 0x55;
+
+		outputHID[3 + x360Controller.hidOffset] = rumble[0]; //Low Rumble
+		outputHID[4 + x360Controller.hidOffset] = rumble[1]; //High Rumble
+
+	LightEditorOpened:
+
+		outputHID[9 + x360Controller.hidOffset] = x360Controller.RGB[x360Controller.RGB[0].Index].microhponeLed;
+		outputHID[39 + x360Controller.hidOffset] = 0x02;
+		outputHID[42 + x360Controller.hidOffset] = 0x02;
+		outputHID[43 + x360Controller.hidOffset] = 0x02;
+
+
+		for (int i = 0; i < 3; i++) {
+			outputHID[45 + x360Controller.hidOffset + i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i] * 255;
+			x360Controller.RGB[0].colors[i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i];
+		}
+
+		//Send Output Report
+		if (x360Controller.threadStop) return;
+
+		if (x360Controller.hidOffset) {
+			outputHID[0] = 0x31; // BT Report ID
+
+			const UINT32 crc = computeCRC32(outputHID, 74);
+
+			outputHID[74] = (crc & 0x000000FF);
+			outputHID[75] = ((crc & 0x0000FF00) >> 8UL);
+			outputHID[76] = ((crc & 0x00FF0000) >> 16UL);
+			outputHID[77] = ((crc & 0xFF000000) >> 24UL);
+
+			hid_write(x360Controller.deviceHandle, outputHID, 547);
+			continue;
+		}
+		//USB
+		hid_write(x360Controller.deviceHandle, outputHID, 64);
+	}
+}
+
+static bool isControllerConnected(controller& x360Controller) {
+	x360Controller.isConnected = false;
+
+	//Stop output thread
+	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
+		delete asyncThreadPointer;
+		asyncThreadPointer = nullptr;
+	}
+
+	while (true) {
+		Sleep(50); //Sleeps for 50ms so it doesnt spam the cpu
+
+		if (isDualsenseConnected(x360Controller)) {
+			x360Controller.threadStop = false;
+			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
+			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
+			return true;
+		}
+	}
+}
 
 static void getDualsenseInput(controller& x360Controller) {
 
@@ -167,138 +280,13 @@ static void getDualsenseInput(controller& x360Controller) {
 		outputHID[22 + bluetooth]; //Mode Motor Left
 		outputHID[23 + bluetooth]; //Left trigger start of resistance section
 		outputHID[24 + bluetooth]; //Left trigger (mode1) amount of force exerted (mode2) end of resistance section supplemental mode 4+20) flag(s?) 0x02 = do not pause effect when fully presse
-		outputHID[25 + bluetooth; //Left trigger force exerted in range (mode2)
+		outputHID[25 + bluetooth]; //Left trigger force exerted in range (mode2)
 		outputHID[26 + bluetooth]; // strength of effect near release state (requires supplement modes 4 and 20)
 		outputHID[27 + bluetooth]; // strength of effect near middle (requires supplement modes 4 and 20)
 		outputHID[28 + bluetooth]; // strength of effect at pressed state (requires supplement modes 4 and 20)
 		outputHID[31 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
 		*/
-static bool isDualsenseConnected(controller& x360Controller) {
 
-	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
-
-	if (x360Controller.deviceHandle == nullptr) {
-		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
-		if (x360Controller.deviceHandle == nullptr) {
-			printf("%ls\n", hid_error(x360Controller.deviceHandle));
-			return false;
-		}
-	}
-
-	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
-	x360Controller.isConnected = true;
-
-	if (x360Controller.hidOffset) { //Bluetooth
-		x360Controller.bufferSize = 78;
-		x360Controller.inputBuffer[0] = 0x31; //Data report code
-		return true;
-	}
-	//USB
-
-	//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
-
-	x360Controller.bufferSize = 64;
-	x360Controller.inputBuffer[0] = 0x01; //Data report code
-	return true;
-
-}
-
-LPVOID ptrController;
-LPVOID asyncThreadPointer = nullptr;
-UCHAR rumble[2]{};
-
-bool isControllerConnected(controller& x360Controller) {
-	x360Controller.isConnected = false;
-
-	//Stop output thread
-	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
-		delete asyncThreadPointer;
-		asyncThreadPointer = nullptr;
-	}
-
-	while (true) {
-		Sleep(50); //Sleeps for 50ms so it doesnt spam the cpu
-
-		if (isDualsenseConnected(x360Controller)) {
-			x360Controller.threadStop = false;
-			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
-			reinterpret_cast<std::thread*>(asyncThreadPointer)->detach();
-			return true;
-		}
-	}
-
-}
-
-uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
-{
-	UINT32 result = crcSeed;
-	for (size_t i = 0; i < len; i++)
-		// Compute crc
-		result = hashTable[((unsigned char)result) ^ ((unsigned char)buffer[i])] ^ (result >> 8);
-	// Return result
-	return result;
-}
-
-unsigned char outputHID[547]{};
-constexpr DWORD TITLE_SIZE = 1024;
-
-bool profileOpen;
-bool lightbarOpen;
-bool profileEdit;
-bool rumbleEnabled;
-
-static void sendDualsenseOutputReport(controller& x360Controller) {
-	while (true) {
-
-		Sleep(4);
-
-		ZeroMemory(outputHID, 547);
-
-		//USB Report ID or BT additional Flag
-		outputHID[0 + x360Controller.hidOffset] = 0x02;
-
-		//Trigger Flags
-		outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
-		outputHID[2 + x360Controller.hidOffset] = 0x55;
-
-		outputHID[3 + x360Controller.hidOffset] = rumble[0]; //Low Rumble
-		outputHID[4 + x360Controller.hidOffset] = rumble[1]; //High Rumble
-
-	LightEditorOpened:
-
-		outputHID[9 + x360Controller.hidOffset] = x360Controller.RGB[x360Controller.RGB[0].Index].microhponeLed;
-		outputHID[39 + x360Controller.hidOffset] = 0x02;
-		outputHID[42 + x360Controller.hidOffset] = 0x02;
-		outputHID[43 + x360Controller.hidOffset] = 0x02;
-
-
-		for (int i = 0; i < 3; i++) {
-			outputHID[45 + x360Controller.hidOffset + i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i] * 255;
-			x360Controller.RGB[0].colors[i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i];
-		}
-
-		//Send Output Report
-		if (x360Controller.threadStop) return;
-
-		if (x360Controller.hidOffset) {
-			outputHID[0] = 0x31; // BT Report ID
-
-			const UINT32 crc = computeCRC32(outputHID, 74);
-
-			outputHID[74] = (crc & 0x000000FF);
-			outputHID[75] = ((crc & 0x0000FF00) >> 8UL);
-			outputHID[76] = ((crc & 0x00FF0000) >> 16UL);
-			outputHID[77] = ((crc & 0xFF000000) >> 24UL);
-
-			hid_write(x360Controller.deviceHandle, outputHID, 547);
-			continue;
-		}
-		//USB
-		hid_write(x360Controller.deviceHandle, outputHID, 64);
-
-	}
-
-}
 
 VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData) {
 	rumble[0] = SmallMotor;
