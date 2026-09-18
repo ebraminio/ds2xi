@@ -2,8 +2,6 @@
 #include "Functions\Misc\functionality.h"
 #include "Sub Menus\subMenus.h"
 #include "User Settings/Lightbar/Lightbar.h"
-#include "Startup/startup.h"
-#include <conio.h>
 
 bool rumbleWindow = false;
 extern bool gyroEnabled = false;
@@ -22,7 +20,7 @@ void inline notificationBar(ImVec2 cursorPosition,const bool& isConnected,const 
 
 void inline topBar(const GLuint* Images, const float& displaySizeX, const float* RGB);
 
-int GUI(controller& x360Controller,std::vector<Macros>& Macro, std::vector<gameProfile>& gameProfiles,bool minimized){
+int GUI(controller& x360Controller,std::vector<Macros>& Macro, std::vector<gameProfile>& gameProfiles){
     GLuint Images[21];
 
     glfwInit();
@@ -163,22 +161,6 @@ void inline topBar(const GLuint* Images, const float& displaySizeX,const float* 
         if (ImGui::Selectable("##Debug Menu")) debugOpen = true;
         ImGui::SameLine(30);
         ImGui::Text("Debug Menu");
-
-
-        if (ImGui::RadioButton("##Minimized", minimized))
-            minimized = !minimized;
-        ImGui::SameLine();
-        if (ImGui::Selectable("##Startup")) setStartup(minimized);
-        ImGui::SameLine(30);
-        if (ImGui::BeginItemTooltip()) {
-            ImGui::Text("Toggle if you want to start minimized");
-            ImGui::EndTooltip();
-        }
-        ImGui::Text("Open at Startup");
-       
-        if (ImGui::Selectable("##Update")) autoUpdater();
-        ImGui::SameLine(30);
-        ImGui::Text("Update");
 
         ImGui::EndCombo();
     }

@@ -356,8 +356,6 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Misc\benchmark.cpp" />
     <ClCompile Include="src\Misc\util.cpp" />
-    <ClCompile Include="src\Startup\startup.cpp" />
-    <ClCompile Include="src\Updater\update.cpp" />
     <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp" />
     <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp" />
     <ClCompile Include="src\User Settings\Game Profiles\gameProfile.cpp" />
@@ -392,8 +390,6 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     <ClInclude Include="src\main.h" />
     <ClInclude Include="src\Misc\benchmark.h" />
     <ClInclude Include="src\Misc\util.h" />
-    <ClInclude Include="src\Startup\startup.h" />
-    <ClInclude Include="src\Updater\update.h" />
     <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h" />
     <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h" />
     <ClInclude Include="src\User Settings\Game Profiles\gameProfile.h" />

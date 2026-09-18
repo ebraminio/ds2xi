@@ -70,7 +70,7 @@ int main(int argc,char* argv[]) {
 		return -1;
 	}
 	//Start async threads
-	std::thread(GUI, std::ref(x360Controller),std::ref(Macro),std::ref(gameProfiles), startMinimized(argv[1])).detach();
+	std::thread(GUI, std::ref(x360Controller),std::ref(Macro),std::ref(gameProfiles)).detach();
 	std::thread(asyncMacro, std::ref(x360Controller),std::ref(Macro)).detach();
 	std::thread(asyncGameProfile, std::ref(gameProfiles), std::ref(x360Controller)).detach();
 	std::thread(gyroController,std::ref(x360Controller)).detach();

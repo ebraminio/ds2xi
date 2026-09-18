@@ -76,9 +76,6 @@
     <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Button Mapping">
       <UniqueIdentifier>{6246d86b-115f-4ded-adae-e047bc0398b5}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\Startup">
-      <UniqueIdentifier>{bfda5203-4f58-4af8-abdf-e31e9a6b54b1}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Source Files\Backend\User Startup Settings\Updater">
       <UniqueIdentifier>{c3b8648b-b856-4100-98c6-2da8a56e79d3}</UniqueIdentifier>
     </Filter>
@@ -101,9 +98,6 @@
     </ClCompile>
     <ClCompile Include="src\Misc\util.cpp">
       <Filter>Source Files\Backend\Debug</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Updater\update.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\Updater</Filter>
     </ClCompile>
     <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>
@@ -159,9 +153,6 @@
     <ClCompile Include="src\ControllerIO\Dualshock4\dualshock4.cpp">
       <Filter>Source Files\Backend\Controller\Controller IO\Dualshock4</Filter>
     </ClCompile>
-    <ClCompile Include="src\Startup\startup.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\Startup</Filter>
-    </ClCompile>
     <ClCompile Include="src\ControllerIO\Gyro\gyro.cpp">
       <Filter>Source Files\Backend\Controller\Controller IO\Gyro</Filter>
     </ClCompile>
@@ -187,9 +178,6 @@
     </ClInclude>
     <ClInclude Include="src\Misc\util.h">
       <Filter>Source Files\Backend\Debug</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Updater\update.h">
-      <Filter>Source Files\Backend\User Startup Settings\Updater</Filter>
     </ClInclude>
     <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>
@@ -262,9 +250,6 @@
     </ClInclude>
     <ClInclude Include="src\ControllerIO\Dualshock4\dualshock4.h">
       <Filter>Source Files\Backend\Controller\Controller IO\Dualshock4</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Startup\startup.h">
-      <Filter>Source Files\Backend\User Startup Settings\Startup</Filter>
     </ClInclude>
     <ClInclude Include="src\ControllerIO\Gyro\gyro.h">
       <Filter>Source Files\Backend\Controller\Controller IO\Gyro</Filter>

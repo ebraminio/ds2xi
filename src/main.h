@@ -5,8 +5,6 @@
 #include "misc\util.h"
 #endif
 #include "GUI\GUI.h"
-#include "Updater\update.h"
-#include "Startup/startup.h"
 #include "User Settings/Macros/macro.h"
 #include "User Settings/Adaptive Triggers/Adaptive Triggers.h"
 #include "User Settings/Game Profiles/gameProfile.h"
