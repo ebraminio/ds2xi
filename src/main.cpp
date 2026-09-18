@@ -5,7 +5,8 @@
 #include <Xinput.h>
 #include "ViGEm/Client.h"
 #include <hidapi.h>
-#include <thread>
+#include <cstdio>
+#include <cstdint>
 
 
 constexpr int SONY_VENDOR_ID = 0x054c;
@@ -22,13 +23,13 @@ struct RGB {
 
 constexpr unsigned USB_BUFFER_SIZE = 64;
 constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
+constexpr unsigned BT_CRC_BUFFER_SIZE = 4;
 constexpr unsigned BT_BUFFER_SIZE = 547;
+constexpr unsigned BT_REPORT_ID = 0x31;
 
 struct controller {
-	unsigned char inputBuffer[574]{}; // Maybe should be BT_BUFFER_SIZE?
+	unsigned char inputBuffer[574]; // Maybe should be BT_BUFFER_SIZE?
 	bool hidOffset;
-	bool isConnected{ false };
-	bool threadStop{ false };
 
 	PVIGEM_CLIENT client;
 	PVIGEM_TARGET emulateX360;
@@ -41,8 +42,7 @@ struct controller {
 
 	VIGEM_ERROR target;
 	hid_device* deviceHandle{ nullptr };
-} *ptrController = nullptr;
-std::thread *asyncThreadPointer = nullptr;
+};// *ptrController = nullptr;
 UCHAR rumble[2]{};
 constexpr DWORD TITLE_SIZE = 1024;
 bool profileOpen;
@@ -52,8 +52,8 @@ bool rumbleEnabled;
 
 static bool isDualsenseConnected(controller& x360Controller) {
 	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
-
 	if (x360Controller.deviceHandle == nullptr) {
+		// Fallback to edge's PID
 		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
 		if (x360Controller.deviceHandle == nullptr) {
 			printf("%ls\n", hid_error(x360Controller.deviceHandle));
@@ -62,17 +62,12 @@ static bool isDualsenseConnected(controller& x360Controller) {
 	}
 
 	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
-	x360Controller.isConnected = true;
-
-	if (x360Controller.hidOffset) { //Bluetooth
-		x360Controller.bufferSize = 78;
-		x360Controller.inputBuffer[0] = 0x31; //Data report code
-	}
-	else {
-		//USB
-		//disconnectBluetooth(x360Controller.deviceHandle, serialAddress);
+	if (x360Controller.hidOffset) { // Bluetooth
+		x360Controller.bufferSize = BT_PAYLOAD_BUFFER_SIZE + BT_CRC_BUFFER_SIZE;
+		x360Controller.inputBuffer[0] = BT_REPORT_ID;
+	} else {
 		x360Controller.bufferSize = USB_BUFFER_SIZE;
-		x360Controller.inputBuffer[0] = 0x01; //Data report code
+		x360Controller.inputBuffer[0] = 0x01; // Data report code
 	}
 	return true;
 }
@@ -118,14 +113,12 @@ uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
 {
 	UINT32 result = crcSeed;
 	for (size_t i = 0; i < len; i++)
-		// Compute crc
 		result = hashTable[((unsigned char)result) ^ ((unsigned char)buffer[i])] ^ (result >> 8);
-	// Return result
 	return result;
 }
 
 static void add_crc_to_buffer(unsigned char* outputHID) {
-	outputHID[0] = 0x31; // BT Report ID
+	outputHID[0] = BT_REPORT_ID;
 	const UINT32 crc = computeCRC32(outputHID, BT_PAYLOAD_BUFFER_SIZE);
 	outputHID[BT_PAYLOAD_BUFFER_SIZE] = crc & 0x000000FF;
 	outputHID[BT_PAYLOAD_BUFFER_SIZE + 1] = ((crc & 0x0000FF00) >> 8UL);
@@ -135,79 +128,43 @@ static void add_crc_to_buffer(unsigned char* outputHID) {
 
 static void sendDualsenseOutputReport(controller& x360Controller) {
 	unsigned char outputHID[BT_BUFFER_SIZE];
-	while (true) {
+	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 
-		Sleep(4);
+	// USB Report ID or BT additional Flag
+	outputHID[0 + x360Controller.hidOffset] = 0x02;
 
-		ZeroMemory(outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	// Trigger Flags
+	outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
+	outputHID[2 + x360Controller.hidOffset] = 0x55;
 
-		//USB Report ID or BT additional Flag
-		outputHID[0 + x360Controller.hidOffset] = 0x02;
+	outputHID[3 + x360Controller.hidOffset] = rumble[0]; // Low Rumble
+	outputHID[4 + x360Controller.hidOffset] = rumble[1]; // High Rumble
 
-		//Trigger Flags
-		outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
-		outputHID[2 + x360Controller.hidOffset] = 0x55;
-
-		outputHID[3 + x360Controller.hidOffset] = rumble[0]; //Low Rumble
-		outputHID[4 + x360Controller.hidOffset] = rumble[1]; //High Rumble
-
-	LightEditorOpened:
-
-		outputHID[9 + x360Controller.hidOffset] = x360Controller.RGB[x360Controller.RGB[0].Index].microhponeLed;
-		outputHID[39 + x360Controller.hidOffset] = 0x02;
-		outputHID[42 + x360Controller.hidOffset] = 0x02;
-		outputHID[43 + x360Controller.hidOffset] = 0x02;
+	outputHID[9 + x360Controller.hidOffset] = x360Controller.RGB[x360Controller.RGB[0].Index].microhponeLed;
+	outputHID[39 + x360Controller.hidOffset] = 0x02;
+	outputHID[42 + x360Controller.hidOffset] = 0x02;
+	outputHID[43 + x360Controller.hidOffset] = 0x02;
 
 
-		for (int i = 0; i < 3; i++) {
-			outputHID[45 + x360Controller.hidOffset + i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i] * 255;
-			x360Controller.RGB[0].colors[i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i];
-		}
-
-		//Send Output Report
-		if (x360Controller.threadStop) return;
-		if (x360Controller.hidOffset)
-			add_crc_to_buffer(outputHID);
-		hid_write(x360Controller.deviceHandle, outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	for (int i = 0; i < 3; i++) {
+		outputHID[45 + x360Controller.hidOffset + i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i] * 255;
+		x360Controller.RGB[0].colors[i] = x360Controller.RGB[x360Controller.RGB[0].Index].colors[i];
 	}
-}
-
-static bool isControllerConnected(controller& x360Controller) {
-	x360Controller.isConnected = false;
-
-	//Stop output thread
-	if (asyncThreadPointer != nullptr) {
-		delete asyncThreadPointer;
-		asyncThreadPointer = nullptr;
-	}
-
-	while (true) {
-		Sleep(50); //Sleeps for 50ms so it doesnt spam the cpu
-
-		if (isDualsenseConnected(x360Controller)) {
-			x360Controller.threadStop = false;
-			asyncThreadPointer = new std::thread(sendDualsenseOutputReport, std::ref(x360Controller));
-			asyncThreadPointer->detach();
-			return true;
-		}
-	}
+	if (x360Controller.hidOffset)
+		add_crc_to_buffer(outputHID);
+	hid_write(x360Controller.deviceHandle, outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 }
 
 static void getDualsenseInput(controller& x360Controller) {
-
-	//bool readSuccess = ReadFile(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize, NULL, NULL);
-
 	if (hid_read(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize) == -1) {
-		x360Controller.threadStop = true;
 		printf("%ls\n", hid_error(x360Controller.deviceHandle));
 		hid_close(x360Controller.deviceHandle);
-		isControllerConnected(x360Controller);
+		//isControllerConnected(x360Controller);
 		return;
 	}
-	x360Controller.batteryLevel = (x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5; /* Hex 0x35 (USB) to get Battery / Hex 0x36 (Bluetooth) to get Battery
-																											  because if bluetooth == true then bluetooth == 1 so we can just add bluetooth
-																											  to the hex value of USB to get the battery reading
-																										   */
+
+	// Hex 0x35 (USB) / 0x36 (Bluetooth) to get Battery
+	x360Controller.batteryLevel = (x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5;
 
 	//Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
 	x360Controller.batteryLevel = min(x360Controller.batteryLevel, 100);
@@ -300,77 +257,52 @@ VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeM
 	rumble[1] = LargeMotor;
 }
 
-void zeroOutputReport() {
+void zeroOutputReport(controller &x360Controller) {
 	unsigned char outputHID[BT_BUFFER_SIZE];
-	ZeroMemory(outputHID, ptrController->hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-	outputHID[0 + ptrController->hidOffset] = 0x02;
-	outputHID[1 + ptrController->hidOffset] = 0x03 | 0x04 | 0x08;
-	outputHID[2 + ptrController->hidOffset] = 0x55;
-	if (ptrController->hidOffset)
+	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	outputHID[0 + x360Controller.hidOffset] = 0x02;
+	outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
+	outputHID[2 + x360Controller.hidOffset] = 0x55;
+	if (x360Controller.hidOffset)
 		add_crc_to_buffer(outputHID);
-	WriteFile(ptrController->deviceHandle, outputHID, ptrController->hidOffset ? sizeof(outputHID) : USB_BUFFER_SIZE, NULL, NULL);
+	WriteFile(x360Controller.deviceHandle, outputHID, x360Controller.hidOffset ? sizeof(outputHID) : USB_BUFFER_SIZE, NULL, NULL);
 }
 
-BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
-	if (asyncThreadPointer != nullptr) {
-		ptrController->threadStop = true;
-		delete asyncThreadPointer;
-		asyncThreadPointer = nullptr;
-	}
-	zeroOutputReport();
-
-	//Cleanup
-	vigem_target_remove(ptrController->client, ptrController->emulateX360);
-	vigem_target_free(ptrController->emulateX360);
-	vigem_disconnect(ptrController->client);
-	vigem_free(ptrController->client);
-	_exit(NULL);
-	return TRUE;
-}
-
-static int initializeFakeController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client) {
-
+static int initializeVirtualController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client) {
 	if (client == nullptr) return -1;
-
 	const auto retval = vigem_connect(client);
-
 	if (!VIGEM_SUCCESS(retval)) return -1;
-
 	emulateX360 = vigem_target_x360_alloc();
-
 	target = vigem_target_add(client, emulateX360);
-
 	return 0;
 }
 
 int main(int argc,char* argv[]) {
-#ifdef NDEBUG
-	autoUpdater();
-#endif
-	SetProcessShutdownParameters(2, 0);
-	SetConsoleCtrlHandler(exitFunction, TRUE);
-
-	//Initialize Fake Controller
 	controller x360Controller{};
 
 	x360Controller.client = vigem_alloc();
 
-	if (x360Controller.client == NULL || initializeFakeController(x360Controller.emulateX360, x360Controller.target, x360Controller.client) != 0) {
+	if (x360Controller.client == NULL || initializeVirtualController(x360Controller.emulateX360, x360Controller.target, x360Controller.client) != 0) {
 		if (MessageBox(NULL, L"The app couldn't start, please install VigemBusDriver ,if this error persists please open an issue on github", L"Vigem bus", MB_YESNO | MB_TASKMODAL) == IDNO) return -1;
 		ShellExecute(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
 		return -1;
 	}
 
-	ptrController = &x360Controller;
-
-	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getRumble, ptrController);
-	isControllerConnected(x360Controller);
+	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getRumble, &x360Controller);
+	isDualsenseConnected(x360Controller);
 	while (true) {
 		XInputGetState(0, &x360Controller.ControllerState);
 
 		getDualsenseInput(x360Controller);
+		sendDualsenseOutputReport(x360Controller);
 
 		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, *reinterpret_cast<XUSB_REPORT*>(&x360Controller.ControllerState.Gamepad));
 	}
+
+	zeroOutputReport(x360Controller);
+	vigem_target_remove(x360Controller.client, x360Controller.emulateX360);
+	vigem_target_free(x360Controller.emulateX360);
+	vigem_disconnect(x360Controller.client);
+	vigem_free(x360Controller.client);
 	return 0;
 }
