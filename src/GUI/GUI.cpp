@@ -19,6 +19,8 @@ void inline notificationBar(ImVec2 cursorPosition,const bool& isConnected,const 
 
 void inline topBar(const GLuint* Images, const float& displaySizeX, const float* RGB);
 
+extern BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType);
+
 int GUI(controller& x360Controller,std::vector<Macros>& Macro, std::vector<gameProfile>& gameProfiles){
     GLuint Images[21];
 

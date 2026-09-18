@@ -348,12 +348,10 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     <ClCompile Include="src\ControllerIO\controllerIO.cpp" />
     <ClCompile Include="src\ControllerIO\Dualsense\dualsense.cpp" />
     <ClCompile Include="src\ControllerIO\Dualshock4\dualshock4.cpp" />
-    <ClCompile Include="src\ControllerIO\Gyro\gyro.cpp" />
     <ClCompile Include="src\GUI\Functions\Misc\functionality.cpp" />
     <ClCompile Include="src\GUI\GUI.cpp" />
     <ClCompile Include="src\GUI\Sub Menus\subMenus.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\Misc\benchmark.cpp" />
     <ClCompile Include="src\Misc\util.cpp" />
     <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp" />
     <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp" />
@@ -380,13 +378,11 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     <ClInclude Include="src\ControllerIO\controllerIO.h" />
     <ClInclude Include="src\ControllerIO\Dualsense\dualsense.h" />
     <ClInclude Include="src\ControllerIO\Dualshock4\dualshock4.h" />
-    <ClInclude Include="src\ControllerIO\Gyro\gyro.h" />
     <ClInclude Include="src\GUI\Functions\Misc\functionality.h" />
     <ClInclude Include="src\GUI\GUI.h" />
     <ClInclude Include="src\GUI\include.h" />
     <ClInclude Include="src\GUI\Sub Menus\subMenus.h" />
     <ClInclude Include="src\main.h" />
-    <ClInclude Include="src\Misc\benchmark.h" />
     <ClInclude Include="src\Misc\util.h" />
     <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h" />
     <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h" />

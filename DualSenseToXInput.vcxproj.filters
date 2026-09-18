@@ -76,9 +76,6 @@
     <Filter Include="Source Files\Backend\User Startup Settings\Updater">
       <UniqueIdentifier>{c3b8648b-b856-4100-98c6-2da8a56e79d3}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\Backend\Controller\Controller IO\Gyro">
-      <UniqueIdentifier>{8a2c0cb3-d1aa-4213-ae80-db060bf2a906}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
@@ -135,9 +132,6 @@
     <ClCompile Include="src\User Settings\Game Profiles\saveLoad.cpp">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
     </ClCompile>
-    <ClCompile Include="src\Misc\benchmark.cpp">
-      <Filter>Source Files\Backend\Debug</Filter>
-    </ClCompile>
     <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
     </ClCompile>
@@ -146,9 +140,6 @@
     </ClCompile>
     <ClCompile Include="src\ControllerIO\Dualshock4\dualshock4.cpp">
       <Filter>Source Files\Backend\Controller\Controller IO\Dualshock4</Filter>
-    </ClCompile>
-    <ClCompile Include="src\ControllerIO\Gyro\gyro.cpp">
-      <Filter>Source Files\Backend\Controller\Controller IO\Gyro</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -230,9 +221,6 @@
     <ClInclude Include="src\User Settings\Game Profiles\saveLoad.h">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
     </ClInclude>
-    <ClInclude Include="src\Misc\benchmark.h">
-      <Filter>Source Files\Backend\Debug</Filter>
-    </ClInclude>
     <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h">
       <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
     </ClInclude>
@@ -241,9 +229,6 @@
     </ClInclude>
     <ClInclude Include="src\ControllerIO\Dualshock4\dualshock4.h">
       <Filter>Source Files\Backend\Controller\Controller IO\Dualshock4</Filter>
-    </ClInclude>
-    <ClInclude Include="src\ControllerIO\Gyro\gyro.h">
-      <Filter>Source Files\Backend\Controller\Controller IO\Gyro</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

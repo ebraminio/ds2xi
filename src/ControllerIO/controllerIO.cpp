@@ -5,11 +5,7 @@
 #include "Dualsense/dualsense.h"
 #include "Dualshock4/dualshock4.h"
 #include "thread"
-#if (defined _DEBUG || defined _PROFILE)
-#include "Misc/benchmark.h"
-#else
 #define DEBUG(x) do ; while(0)
-#endif // _DEBUG
 
 
 //#define boolSetter(x,y,operatorA,operatorB) x * (x operatorA y) + y * (y operatorB x);

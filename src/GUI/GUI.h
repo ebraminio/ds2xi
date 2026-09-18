@@ -7,7 +7,5 @@
 constexpr short defaultWindowWidth = 1280;
 constexpr short defaultWindowHeigth = 720;
 
-extern BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType);
-
 int GUI(controller& x360Controller, std::vector<Macros>& Macro, std::vector<gameProfile>& gameProfiles);
 

@@ -56,11 +56,6 @@ void zeroOutputReport() {
 }
 
 extern BOOL WINAPI exitFunction(_In_ DWORD dwCtrlType) {
-#ifndef NDEBUG
-	extern void saveOnExit();
-	saveOnExit();
-#endif // !NDEBUG
-
 	if (reinterpret_cast<std::thread*>(asyncThreadPointer) != nullptr) {
 		reinterpret_cast<controller*>(ptrController)->threadStop = true;
 		delete asyncThreadPointer;
