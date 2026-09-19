@@ -2,7 +2,6 @@
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
 #include <windows.h>
-#include <Xinput.h>
 #include "ViGEm/Client.h"
 #include <hidapi.h>
 #include <cstdio>
@@ -23,12 +22,12 @@ constexpr unsigned USB_REPORT_ID = 0x01;
 constexpr unsigned BT_REPORT_ID = 0x31;
 
 struct controller {
-	unsigned char inputBuffer[574]; // Maybe should be BT_BUFFER_SIZE?
+	uint8_t inputBuffer[574]; // Maybe should be BT_BUFFER_SIZE?
 	bool hidOffset;
 
 	PVIGEM_CLIENT client;
 	PVIGEM_TARGET emulateX360;
-	XINPUT_STATE ControllerState;
+	XUSB_REPORT ControllerState;
 	int batteryLevel;
 
 	int bufferSize;
@@ -125,7 +124,7 @@ static void add_crc_to_buffer(unsigned char* outputHID) {
 constexpr bool demo = true;
 
 static void sendDualsenseOutputReport(controller& x360Controller) {
-	unsigned char outputHID[BT_BUFFER_SIZE];
+	uint8_t outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 
 	// USB Report ID or BT additional Flag
@@ -167,44 +166,44 @@ static void sendDualsenseOutputReport(controller& x360Controller) {
 static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 	if (hid_read(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize) == -1) {
 		printf("%ls\n", hid_read_error(x360Controller.deviceHandle));
-		hid_close(x360Controller.deviceHandle);
+		// hid_close(x360Controller.deviceHandle);
 		return;
 	}
 
 	// Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
 	x360Controller.batteryLevel = min((x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5, 100);
 
-	x360Controller.ControllerState.Gamepad.sThumbLX = ((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768);
-	x360Controller.ControllerState.Gamepad.sThumbLY = (32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257));
-	x360Controller.ControllerState.Gamepad.sThumbRX = ((x360Controller.inputBuffer[3 + x360Controller.hidOffset] * 257) - 32768);
-	x360Controller.ControllerState.Gamepad.sThumbRY = (32767 - (x360Controller.inputBuffer[4 + x360Controller.hidOffset] * 257));
+	x360Controller.ControllerState.sThumbLX = ((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768);
+	x360Controller.ControllerState.sThumbLY = (32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257));
+	x360Controller.ControllerState.sThumbRX = ((x360Controller.inputBuffer[3 + x360Controller.hidOffset] * 257) - 32768);
+	x360Controller.ControllerState.sThumbRY = (32767 - (x360Controller.inputBuffer[4 + x360Controller.hidOffset] * 257));
 
-	x360Controller.ControllerState.Gamepad.bLeftTrigger = x360Controller.inputBuffer[5 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[5 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
-	x360Controller.ControllerState.Gamepad.bRightTrigger = x360Controller.inputBuffer[6 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[6 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
+	x360Controller.ControllerState.bLeftTrigger = x360Controller.inputBuffer[5 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[5 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
+	x360Controller.ControllerState.bRightTrigger = x360Controller.inputBuffer[6 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[6 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
 
 	// Normal Order
-	x360Controller.ControllerState.Gamepad.wButtons = (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 4)) ? XINPUT_GAMEPAD_X : 0; //Square
+	x360Controller.ControllerState.wButtons = (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_X : 0; //Square
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 5)) ? XINPUT_GAMEPAD_A : 0; //Cross
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_A : 0; //Cross
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 6)) ? XINPUT_GAMEPAD_B : 0; //Circle
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_B : 0; //Circle
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 7)) ? XINPUT_GAMEPAD_Y : 0; //Triangle
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0; //Triangle
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 0)) ? XINPUT_GAMEPAD_LEFT_SHOULDER : 0; //Left Shoulder
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0; //Left Shoulder
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 1)) ? XINPUT_GAMEPAD_RIGHT_SHOULDER : 0; //Right Shoulder
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; //Right Shoulder
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4)) ? XINPUT_GAMEPAD_BACK : 0; //Select
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0; //Select
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5)) ? XINPUT_GAMEPAD_START : 0; //Start
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_START : 0; //Start
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 6)) ? XINPUT_GAMEPAD_LEFT_THUMB : 0; //Left Thumb
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0; //Left Thumb
 
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 7)) ? XINPUT_GAMEPAD_RIGHT_THUMB : 0; //Right thumb
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0; //Right thumb
 
 	// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
-	x360Controller.ControllerState.Gamepad.wButtons |= (bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
 	// 1 << 1 => Touchpad Button
 	// 1 << 2 => Mic Button
 	// DualSense Edge:
@@ -218,21 +217,21 @@ static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 	}
 
 	switch ((int)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f)) {
-	case 0: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
+	case 0: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP; break;
 
-	case 1: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP + XINPUT_GAMEPAD_DPAD_RIGHT; break;
+	case 1: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_RIGHT; break;
 
-	case 2: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT; break;
+	case 2: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT; break;
 
-	case 3: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN + XINPUT_GAMEPAD_DPAD_RIGHT; break;
+	case 3: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_RIGHT; break;
 
-	case 4: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN; break;
+	case 4: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN; break;
 
-	case 5: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN + XINPUT_GAMEPAD_DPAD_LEFT; break;
+	case 5: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_LEFT; break;
 
-	case 6: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT; break;
+	case 6: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_LEFT; break;
 
-	case 7: x360Controller.ControllerState.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP + XINPUT_GAMEPAD_DPAD_LEFT; break;
+	case 7: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_LEFT; break;
 	}
 }
 
@@ -267,7 +266,7 @@ VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeM
 }
 
 void zeroOutputReport(controller &x360Controller) {
-	unsigned char outputHID[BT_BUFFER_SIZE];
+	uint8_t outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 	outputHID[0 + x360Controller.hidOffset] = 0x02;
 	outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
@@ -286,7 +285,7 @@ static int initializeVirtualController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& 
 	return 0;
 }
 
-int main(int argc,char* argv[]) {
+int main(int argc, char* argv[]) {
 	controller x360Controller{};
 
 	x360Controller.client = vigem_alloc();
@@ -302,13 +301,12 @@ int main(int argc,char* argv[]) {
 	uint64_t counter = 0;
 	while (true) {
 		++counter;
-		XInputGetState(0, &x360Controller.ControllerState);
 		if (x360Controller.deviceHandle) {
 			getDualsenseInput(x360Controller, counter);
 			sendDualsenseOutputReport(x360Controller);
 		}
 		else if (counter % 0xFFFF == 1) isDualsenseConnected(x360Controller);
-		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, *reinterpret_cast<XUSB_REPORT*>(&x360Controller.ControllerState.Gamepad));
+		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, x360Controller.ControllerState);
 	}
 
 	zeroOutputReport(x360Controller);

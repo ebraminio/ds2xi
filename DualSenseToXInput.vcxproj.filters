@@ -13,205 +13,20 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
-    <Filter Include="Source Files\Backend">
-      <UniqueIdentifier>{d07c9697-9dce-438e-94e2-0c124e526e1c}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd">
-      <UniqueIdentifier>{342b1684-87df-4838-a1c3-93169f5947b7}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\GUI">
-      <UniqueIdentifier>{7bc69e98-5bc2-4697-ac51-b27e1d3cd11b}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\Controller">
-      <UniqueIdentifier>{d6d6a11b-03cd-474b-acd7-8d79b746af06}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\Controller\Controller IO">
-      <UniqueIdentifier>{09f5b18a-fdb5-4467-8694-194b6ef46eb1}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\GUI\Main Window">
-      <UniqueIdentifier>{9290badd-6b9e-4b96-b0ff-f27a4ef4ae4f}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\GUI\Functionality">
-      <UniqueIdentifier>{d0322e7e-d966-44bb-b052-740efb7d7693}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\GUI\Functionality\Misc">
-      <UniqueIdentifier>{8861302c-117a-4bc2-aa0f-bd87473bcb3f}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\ImGui">
-      <UniqueIdentifier>{cebe3235-338e-4573-92a3-fb0489e937e3}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\FrontEnd\GUI\Functionality\Sub Menus">
-      <UniqueIdentifier>{5875696c-e945-4e34-842b-b8730ff7f510}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\Debug">
-      <UniqueIdentifier>{ea1ba039-592b-47ec-934f-e7f6e2324a80}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings">
-      <UniqueIdentifier>{79f1ab08-ba27-459e-b1c9-445fedf8395e}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings">
-      <UniqueIdentifier>{57f1b13b-65a5-439a-8f00-5e364984b008}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers">
-      <UniqueIdentifier>{f0ff02b0-9e9b-4904-9fd0-7fe437b724cd}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Macros">
-      <UniqueIdentifier>{49974206-8831-41a1-8a3f-e136e9d693bf}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Game Profile">
-      <UniqueIdentifier>{a891a2a3-4b22-4a53-ab2e-029a96940890}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Lightbar">
-      <UniqueIdentifier>{a78ffa3c-8c73-4344-aec9-d3827c9828dd}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\Backend\User Startup Settings\User Settings\Button Mapping">
-      <UniqueIdentifier>{6246d86b-115f-4ded-adae-e047bc0398b5}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\GUI\Functions\Misc\functionality.cpp">
-      <Filter>Source Files\FrontEnd\GUI\Functionality\Misc</Filter>
-    </ClCompile>
-    <ClCompile Include="src\GUI\GUI.cpp">
-      <Filter>Source Files\FrontEnd\GUI\Main Window</Filter>
-    </ClCompile>
-    <ClCompile Include="src\ControllerIO\controllerIO.cpp">
-      <Filter>Source Files\Backend\Controller\Controller IO</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Game Profiles\gameProfile.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Macros\macro.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Macros</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Lightbar\Lightbar.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Lightbar</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_draw.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_impl_glfw.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_impl_opengl3.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_stdlib.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_tables.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="Include\imgui\cpp\imgui_widgets.cpp">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="src\GUI\Sub Menus\subMenus.cpp">
-      <Filter>Source Files\FrontEnd\GUI\Functionality\Sub Menus</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Game Profiles\saveLoad.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
-    </ClCompile>
-    <ClCompile Include="src\User Settings\Button Mappings\button Mappings.cpp">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource1.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\main.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\GUI\Functions\Misc\functionality.h">
-      <Filter>Source Files\FrontEnd\GUI\Functionality\Misc</Filter>
-    </ClInclude>
-    <ClInclude Include="src\GUI\GUI.h">
-      <Filter>Source Files\FrontEnd\GUI\Main Window</Filter>
-    </ClInclude>
-    <ClInclude Include="src\GUI\include.h">
-      <Filter>Source Files\FrontEnd\GUI\Main Window</Filter>
-    </ClInclude>
-    <ClInclude Include="src\ControllerIO\controllerIO.h">
-      <Filter>Source Files\Backend\Controller\Controller IO</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Adaptive Triggers\Adaptive Triggers.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Adaptive Triggers</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Game Profiles\gameProfile.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Macros\macro.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Macros</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Lightbar\Lightbar.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Lightbar</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\GLFW\glfw3.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\GLFW\glfw3native.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imconfig.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui_impl_glfw.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui_impl_opengl3.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui_impl_opengl3_loader.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui_internal.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imgui_stdlib.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imstb_rectpack.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imstb_textedit.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\imstb_truetype.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="Include\imgui\header\stb_image.h">
-      <Filter>Source Files\FrontEnd\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="src\GUI\Sub Menus\subMenus.h">
-      <Filter>Source Files\FrontEnd\GUI\Functionality\Sub Menus</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Game Profiles\saveLoad.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Game Profile</Filter>
-    </ClInclude>
-    <ClInclude Include="src\User Settings\Button Mappings\button Mappings.h">
-      <Filter>Source Files\Backend\User Startup Settings\User Settings\Button Mapping</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="PCXSense.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="CPP.HINT">
-      <Filter>Source Files</Filter>
-    </None>
   </ItemGroup>
 </Project>
