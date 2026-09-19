@@ -1,0 +1,7 @@
+[submodule "ViGEmClient"]
+	path = ViGEmClient
+	url = https://github.com/nefarius/ViGEmClient
+[submodule "hidapi"]
+	path = hidapi
+	url = https://github.com/libusb/hidapi
+	branch = connection-callback-2

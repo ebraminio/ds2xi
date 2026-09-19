@@ -1,12 +1,8 @@
-#ifdef NDEBUG
-#pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
-#endif
-
 #include <windows.h>
-#include <hidapi.h>
 #include <cstdio>
 #include <cstdint>
 
+#include "hidapi.h"
 #include "ViGEm/Client.h"
 #include "crc32.h"
 
@@ -14,31 +10,30 @@ constexpr int SONY_VENDOR_ID = 0x054c;
 
 constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
 constexpr int DUALSENSEEDGE_PRODUCT_ID = 0x0df2;
-constexpr int DUALSHOCK4_PRODUCT_ID = 0x09CC;
+constexpr int DUALSHOCK4_PRODUCT_ID = 0x09cc;
 
 constexpr unsigned USB_BUFFER_SIZE = 64;
 constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
-constexpr unsigned BT_CRC_BUFFER_SIZE = 4;
 constexpr unsigned BT_BUFFER_SIZE = 547;
-constexpr unsigned USB_REPORT_ID = 0x01;
 constexpr unsigned BT_REPORT_ID = 0x31;
 
 // A connection between actual DualSense controller and virtual XInput device
 struct ControllerBridge
 {
-	// Actual controller's 
-	hid_device* actualControllerHandle;
+	// Actual controller's
+	hid_device *actualControllerHandle;
 	bool isActualControllerBluetooth;
 
 	// Things to get from the virtual controller and pass to the actual one
-	uint8_t rumble[2];
+	uint8_t smallMotor;
+	uint8_t largeMotor;
 	uint8_t ledNumber;
 
-	// 
+	//
 	int shortTriggers;
 	int batteryLevel;
 
-	// Things to pass to the actual controller 
+	// Things to pass to the actual controller
 	bool microphoneLed;
 
 	// Virtual controller handle
@@ -95,9 +90,8 @@ static void sendDualsenseOutputReport(ControllerBridge &bridge, uint64_t counter
 	outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
 	outputHID[2 + isBluetooth] = 0x55;
 
-	outputHID[3 + isBluetooth] = bridge.rumble[0]; // Low Rumble
-	outputHID[4 + isBluetooth] = bridge.rumble[1]; // High Rumble
-
+	outputHID[3 + isBluetooth] = bridge.smallMotor; // Low Rumble
+	outputHID[4 + isBluetooth] = bridge.largeMotor; // High Rumble
 	outputHID[9 + isBluetooth] = bridge.microphoneLed;
 
 	outputHID[39 + isBluetooth] = 0x02;
@@ -142,13 +136,13 @@ static void sendDualsenseOutputReport(ControllerBridge &bridge, uint64_t counter
 static void getDualsenseInput(PVIGEM_CLIENT client, ControllerBridge &bridge, uint64_t counter)
 {
 	uint8_t buffer[574];
-	int bufferSize = hid_read(bridge.actualControllerHandle, buffer, sizeof (buffer));
+	int bufferSize = hid_read(bridge.actualControllerHandle, buffer, sizeof(buffer));
 	if (bufferSize == 0)
 		// Non blocking read can return 0 data
 		return;
 	else if (bufferSize == -1)
 	{
-		printf("%ls\n", hid_read_error(bridge.actualControllerHandle));
+		printf("%ls\n", hid_error(bridge.actualControllerHandle));
 		hid_close(bridge.actualControllerHandle);
 		bridge.actualControllerHandle = nullptr;
 		return;
@@ -174,16 +168,16 @@ static void getDualsenseInput(PVIGEM_CLIENT client, ControllerBridge &bridge, ui
 	gamepadReport.bRightTrigger = buffer[6 + isBluetooth] * (bridge.shortTriggers == 0) + (((buffer[6 + isBluetooth]) >> 2) + 190) * (bridge.shortTriggers != 0);
 
 	// Normal Order
-	gamepadReport.wButtons = (bool)(buffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;               // Square
-	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;              // Cross
-	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;              // Circle
-	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;              // Triangle
-	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;  // Left Shoulder
+	gamepadReport.wButtons = (bool)(buffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;				// Square
+	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;				// Cross
+	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;				// Circle
+	gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;				// Triangle
+	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;	// Left Shoulder
 	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; // Right Shoulder
-	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;           // Select
-	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;          // Start
-	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;     // Left Thumb
-	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;    // Right thumb
+	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;			// Select
+	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;			// Start
+	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;		// Left Thumb
+	gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;	// Right thumb
 
 	// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
 	gamepadReport.wButtons |= (bool)(buffer[10 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
@@ -247,8 +241,8 @@ static void getDualsenseInput(PVIGEM_CLIENT client, ControllerBridge &bridge, ui
 static VOID CALLBACK getUpdatesFromVirualController(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
 {
 	ControllerBridge &bridge = *reinterpret_cast<ControllerBridge *>(UserData);
-	bridge.rumble[0] = SmallMotor;
-	bridge.rumble[1] = LargeMotor;
+	bridge.smallMotor = SmallMotor;
+	bridge.largeMotor = LargeMotor;
 	bridge.ledNumber = LedNumber;
 }
 
@@ -283,7 +277,7 @@ int main(int argc, char *argv[])
 	ControllerBridge bridge{};
 	if (client == NULL || initializeVirtualController(bridge.virtualController, bridge.error, client) != 0)
 	{
-		if (MessageBox(NULL, L"The app couldn't start, please install VigemBusDriver", L"Vigem bus", MB_YESNO | MB_TASKMODAL) == IDNO)
+		if (MessageBoxW(NULL, L"The app couldn't start, please install VigemBusDriver", L"Vigem bus", MB_YESNO | MB_TASKMODAL) == IDNO)
 			return -1;
 		ShellExecuteW(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
 		return -1;
