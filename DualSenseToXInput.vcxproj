@@ -338,7 +338,7 @@ xcopy "$(SolutionDir)\images" "$(TargetDir)\images" /y /i
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="crc32.h" />
+    <ClInclude Include="src\crc32.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
