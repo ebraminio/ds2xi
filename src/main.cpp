@@ -22,27 +22,19 @@ constexpr unsigned BT_REPORT_ID = 0x31;
 
 struct controller
 {
-	uint8_t inputBuffer[574]; // Maybe should be BT_BUFFER_SIZE?
-	bool hidOffset;
-
 	PVIGEM_CLIENT client;
+	uint8_t inputBuffer[BT_BUFFER_SIZE];
+	uint8_t rumble[2];
+	bool hidOffset;
+	int shortTriggers;
 	PVIGEM_TARGET emulateX360;
 	XUSB_REPORT ControllerState;
 	int batteryLevel;
-
 	int bufferSize;
-	int shortTriggers{};
 	bool microphoneLed;
-
 	VIGEM_ERROR target;
 	hid_device *deviceHandle{nullptr};
-}; // *ptrController = nullptr;
-UCHAR rumble[2]{};
-constexpr DWORD TITLE_SIZE = 1024;
-bool profileOpen;
-bool lightbarOpen;
-bool profileEdit;
-bool rumbleEnabled;
+};
 
 static bool isDualsenseConnected(controller &x360Controller)
 {
@@ -111,7 +103,7 @@ const uint32_t hashTable[256] = {
 	0x616495a3, 0x1663a535, 0x8f6af48f, 0xf86dc419, 0x660951ba, 0x110e612c, 0x88073096, 0xff000000,
 };
 
-uint32_t computeCRC32(unsigned char *buffer, const size_t &len)
+static uint32_t computeCRC32(unsigned char *buffer, const size_t &len)
 {
 	UINT32 result = crcSeed;
 	for (size_t i = 0; i < len; i++)
@@ -131,10 +123,13 @@ static void add_crc_to_buffer(unsigned char *outputHID)
 
 constexpr bool demo = true;
 
-static void sendDualsenseOutputReport(hid_device *deviceHandle, bool isBluetooth, bool microphoneLed, uint64_t counter)
+static void sendDualsenseOutputReport(controller &x360Controller, uint64_t counter)
 {
+	hid_device* deviceHandle = x360Controller.deviceHandle;
 	if (!deviceHandle)
 		return;
+
+	bool isBluetooth = x360Controller.hidOffset;
 
 	uint8_t outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -146,20 +141,20 @@ static void sendDualsenseOutputReport(hid_device *deviceHandle, bool isBluetooth
 	outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
 	outputHID[2 + isBluetooth] = 0x55;
 
-	outputHID[3 + isBluetooth] = rumble[0]; // Low Rumble
-	outputHID[4 + isBluetooth] = rumble[1]; // High Rumble
+	outputHID[3 + isBluetooth] = x360Controller.rumble[0]; // Low Rumble
+	outputHID[4 + isBluetooth] = x360Controller.rumble[1]; // High Rumble
 
-	outputHID[9 + isBluetooth] = microphoneLed;
+	outputHID[9 + isBluetooth] = x360Controller.microphoneLed;
 	outputHID[39 + isBluetooth] = 0x02;
 	outputHID[42 + isBluetooth] = 0x02;
 	outputHID[43 + isBluetooth] = 0x02;
 
 	if (demo)
 	{
-		static float Red{210}, Green{}, Blue{90};
+		static float Red = 210, Green = 0, Blue = 90;
 		if (counter % 0xF == 0)
 		{
-			static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
+			static int AddRed = 1, AddGreen = 1, AddBlue = 1;
 			if (Red == 255)
 				AddRed = -1;
 			if (Red == 0)
@@ -275,13 +270,14 @@ static void getDualsenseInput(controller &x360Controller, uint64_t counter)
 		outputHID[31 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
 		*/
 
-VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
+static VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
 {
-	rumble[0] = SmallMotor;
-	rumble[1] = LargeMotor;
+	controller& x360Controller = *reinterpret_cast<controller *>(UserData);
+	x360Controller.rumble[0] = SmallMotor;
+	x360Controller.rumble[1] = LargeMotor;
 }
 
-void zeroOutputReport(controller &x360Controller)
+static void zeroOutputReport(controller &x360Controller)
 {
 	uint8_t outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -328,7 +324,7 @@ int main(int argc, char *argv[])
 		if (x360Controller.deviceHandle)
 		{
 			getDualsenseInput(x360Controller, counter);
-			sendDualsenseOutputReport(x360Controller.deviceHandle, x360Controller.hidOffset, x360Controller.microphoneLed, counter);
+			sendDualsenseOutputReport(x360Controller, counter);
 		}
 		else if (counter % 0xFFFF == 1)
 			isDualsenseConnected(x360Controller);
