@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <cstdint>
 
-
 constexpr int SONY_VENDOR_ID = 0x054c;
 
 constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
@@ -21,7 +20,8 @@ constexpr unsigned BT_BUFFER_SIZE = 547;
 constexpr unsigned USB_REPORT_ID = 0x01;
 constexpr unsigned BT_REPORT_ID = 0x31;
 
-struct controller {
+struct controller
+{
 	uint8_t inputBuffer[574]; // Maybe should be BT_BUFFER_SIZE?
 	bool hidOffset;
 
@@ -35,8 +35,8 @@ struct controller {
 	bool microphoneLed;
 
 	VIGEM_ERROR target;
-	hid_device* deviceHandle{ nullptr };
-};// *ptrController = nullptr;
+	hid_device *deviceHandle{nullptr};
+}; // *ptrController = nullptr;
 UCHAR rumble[2]{};
 constexpr DWORD TITLE_SIZE = 1024;
 bool profileOpen;
@@ -44,23 +44,30 @@ bool lightbarOpen;
 bool profileEdit;
 bool rumbleEnabled;
 
-static bool isDualsenseConnected(controller& x360Controller) {
+static bool isDualsenseConnected(controller &x360Controller)
+{
 	x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, NULL);
-	if (x360Controller.deviceHandle == nullptr) {
+	if (x360Controller.deviceHandle == nullptr)
+	{
 		// Fallback to edge's PID
 		x360Controller.deviceHandle = hid_open(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, NULL);
-		if (x360Controller.deviceHandle == nullptr) {
+		if (x360Controller.deviceHandle == nullptr)
+		{
 			printf("%ls\n", hid_error(x360Controller.deviceHandle));
 			return false;
 		}
 	}
 
-	hid_set_nonblocking(x360Controller.deviceHandle, true);
+	// hid_set_nonblocking(x360Controller.deviceHandle, true);
 	x360Controller.hidOffset = hid_get_device_info(x360Controller.deviceHandle)->interface_number == -1;
-	if (x360Controller.hidOffset) { // Bluetooth
+	// Bluetooth
+	if (x360Controller.hidOffset)
+	{
 		x360Controller.bufferSize = BT_PAYLOAD_BUFFER_SIZE + BT_CRC_BUFFER_SIZE;
 		x360Controller.inputBuffer[0] = BT_REPORT_ID;
-	} else {
+	}
+	else
+	{
 		x360Controller.bufferSize = USB_BUFFER_SIZE;
 		x360Controller.inputBuffer[0] = USB_REPORT_ID;
 	}
@@ -104,7 +111,7 @@ const uint32_t hashTable[256] = {
 	0x616495a3, 0x1663a535, 0x8f6af48f, 0xf86dc419, 0x660951ba, 0x110e612c, 0x88073096, 0xff000000,
 };
 
-uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
+uint32_t computeCRC32(unsigned char *buffer, const size_t &len)
 {
 	UINT32 result = crcSeed;
 	for (size_t i = 0; i < len; i++)
@@ -112,7 +119,8 @@ uint32_t computeCRC32(unsigned char* buffer, const size_t& len)
 	return result;
 }
 
-static void add_crc_to_buffer(unsigned char* outputHID) {
+static void add_crc_to_buffer(unsigned char *outputHID)
+{
 	outputHID[0] = BT_REPORT_ID;
 	const UINT32 crc = computeCRC32(outputHID, BT_PAYLOAD_BUFFER_SIZE);
 	outputHID[BT_PAYLOAD_BUFFER_SIZE] = crc & 0x000000FF;
@@ -123,84 +131,92 @@ static void add_crc_to_buffer(unsigned char* outputHID) {
 
 constexpr bool demo = true;
 
-static void sendDualsenseOutputReport(controller& x360Controller) {
+static void sendDualsenseOutputReport(hid_device *deviceHandle, bool isBluetooth, bool microphoneLed, uint64_t counter)
+{
+	if (!deviceHandle)
+		return;
+
 	uint8_t outputHID[BT_BUFFER_SIZE];
-	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 
 	// USB Report ID or BT additional Flag
-	outputHID[0 + x360Controller.hidOffset] = 0x02;
+	outputHID[0 + isBluetooth] = 0x02;
 
 	// Trigger Flags
-	outputHID[1 + x360Controller.hidOffset] = 0x03 | 0x04 | 0x08;
-	outputHID[2 + x360Controller.hidOffset] = 0x55;
+	outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
+	outputHID[2 + isBluetooth] = 0x55;
 
-	outputHID[3 + x360Controller.hidOffset] = rumble[0]; // Low Rumble
-	outputHID[4 + x360Controller.hidOffset] = rumble[1]; // High Rumble
+	outputHID[3 + isBluetooth] = rumble[0]; // Low Rumble
+	outputHID[4 + isBluetooth] = rumble[1]; // High Rumble
 
-	outputHID[9 + x360Controller.hidOffset] = x360Controller.microphoneLed;
-	outputHID[39 + x360Controller.hidOffset] = 0x02;
-	outputHID[42 + x360Controller.hidOffset] = 0x02;
-	outputHID[43 + x360Controller.hidOffset] = 0x02;
+	outputHID[9 + isBluetooth] = microphoneLed;
+	outputHID[39 + isBluetooth] = 0x02;
+	outputHID[42 + isBluetooth] = 0x02;
+	outputHID[43 + isBluetooth] = 0x02;
 
-	if (demo) {
-		static float Red{ 210 }, Green{}, Blue{ 90 };
-		static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
-		if (Red == 255) AddRed = -1;
-		if (Red == 0) AddRed = 1;
-		if (Green == 255) AddGreen = -1;
-		if (Green == 0) AddGreen = 1;
-		if (Blue == 255) AddBlue = -1;
-		if (Blue == 0) AddBlue = 1;
-		Red += .5f * AddRed;
-		Green += .5f * AddGreen;
-		Blue += .5f * AddBlue;
-		outputHID[45 + x360Controller.hidOffset] = Red;
-		outputHID[46 + x360Controller.hidOffset] = Green;
-		outputHID[47 + x360Controller.hidOffset] = Blue;
+	if (demo)
+	{
+		static float Red{210}, Green{}, Blue{90};
+		if (counter % 0xF == 0)
+		{
+			static int AddRed{ 1 }, AddGreen{ 1 }, AddBlue{ 1 };
+			if (Red == 255)
+				AddRed = -1;
+			if (Red == 0)
+				AddRed = 1;
+			if (Green == 255)
+				AddGreen = -1;
+			if (Green == 0)
+				AddGreen = 1;
+			if (Blue == 255)
+				AddBlue = -1;
+			if (Blue == 0)
+				AddBlue = 1;
+			Red += 1.5f * AddRed;
+			Green += 1.5f * AddGreen;
+			Blue += 1.5f * AddBlue;
+		}
+		outputHID[45 + isBluetooth] = Red;
+		outputHID[46 + isBluetooth] = Green;
+		outputHID[47 + isBluetooth] = Blue;
 	}
-	if (x360Controller.hidOffset)
+	if (isBluetooth)
 		add_crc_to_buffer(outputHID);
-	hid_write(x360Controller.deviceHandle, outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	hid_write(deviceHandle, outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 }
 
-static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
-	if (hid_read(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize) == -1) {
+static void getDualsenseInput(controller &x360Controller, uint64_t counter)
+{
+	if (hid_read(x360Controller.deviceHandle, x360Controller.inputBuffer, x360Controller.bufferSize) == -1)
+	{
 		printf("%ls\n", hid_read_error(x360Controller.deviceHandle));
-		// hid_close(x360Controller.deviceHandle);
+		hid_close(x360Controller.deviceHandle);
+		x360Controller.deviceHandle = nullptr;
 		return;
 	}
 
 	// Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
 	x360Controller.batteryLevel = min((x360Controller.inputBuffer[53 + x360Controller.hidOffset] & 15) * 12.5, 100);
 
-	x360Controller.ControllerState.sThumbLX = ((x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768);
-	x360Controller.ControllerState.sThumbLY = (32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257));
-	x360Controller.ControllerState.sThumbRX = ((x360Controller.inputBuffer[3 + x360Controller.hidOffset] * 257) - 32768);
-	x360Controller.ControllerState.sThumbRY = (32767 - (x360Controller.inputBuffer[4 + x360Controller.hidOffset] * 257));
+	x360Controller.ControllerState.sThumbLX = (x360Controller.inputBuffer[1 + x360Controller.hidOffset] * 257) - 32768;
+	x360Controller.ControllerState.sThumbLY = 32767 - (x360Controller.inputBuffer[2 + x360Controller.hidOffset] * 257);
+	x360Controller.ControllerState.sThumbRX = (x360Controller.inputBuffer[3 + x360Controller.hidOffset] * 257) - 32768;
+	x360Controller.ControllerState.sThumbRY = 32767 - (x360Controller.inputBuffer[4 + x360Controller.hidOffset] * 257);
 
 	x360Controller.ControllerState.bLeftTrigger = x360Controller.inputBuffer[5 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[5 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
 	x360Controller.ControllerState.bRightTrigger = x360Controller.inputBuffer[6 + x360Controller.hidOffset] * (x360Controller.shortTriggers == 0) + (((x360Controller.inputBuffer[6 + x360Controller.hidOffset]) >> 2) + 190) * (x360Controller.shortTriggers != 0);
 
 	// Normal Order
-	x360Controller.ControllerState.wButtons = (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_X : 0; //Square
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_A : 0; //Cross
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_B : 0; //Circle
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0; //Triangle
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0; //Left Shoulder
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; //Right Shoulder
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0; //Select
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_START : 0; //Start
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0; //Left Thumb
-
-	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0; //Right thumb
+	x360Controller.ControllerState.wButtons = (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;				  // Square
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;			  // Cross
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;			  // Circle
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;			  // Triangle
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;  // Left Shoulder
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; // Right Shoulder
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;			  // Select
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;		  // Start
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;	  // Left Thumb
+	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[9 + x360Controller.hidOffset] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;	  // Right thumb
 
 	// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
 	x360Controller.ControllerState.wButtons |= (bool)(x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
@@ -211,30 +227,30 @@ static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 	//  1 << 5 => Right Function
 	//  1 << 6 => Left Paddle
 	//  1 << 7 => Right Paddle
-	if (demo) {
+	if (demo)
+	{
 		x360Controller.microphoneLed = x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 1);
 		x360Controller.microphoneLed = x360Controller.inputBuffer[10 + x360Controller.hidOffset] & (1 << 2);
 	}
 
-	switch ((int)(x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f)) {
-	case 0: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP; break;
-
-	case 1: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_RIGHT; break;
-
-	case 2: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT; break;
-
-	case 3: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_RIGHT; break;
-
-	case 4: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN; break;
-
-	case 5: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_LEFT; break;
-
-	case 6: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_LEFT; break;
-
-	case 7: x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_LEFT; break;
-	}
+	uint8_t dpad = x360Controller.inputBuffer[8 + x360Controller.hidOffset] & 0x0f;
+	if (dpad == 0)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP;
+	else if (dpad == 1)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_RIGHT;
+	else if (dpad == 2)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
+	else if (dpad == 3)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_RIGHT;
+	else if (dpad == 4)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
+	else if (dpad == 5)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_LEFT;
+	else if (dpad == 6)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
+	else if (dpad == 7)
+		x360Controller.ControllerState.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_LEFT;
 }
-
 
 /*
 *		Triggers Documentation
@@ -259,13 +275,14 @@ static void getDualsenseInput(controller& x360Controller, uint64_t counter) {
 		outputHID[31 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
 		*/
 
-
-VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData) {
+VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
+{
 	rumble[0] = SmallMotor;
 	rumble[1] = LargeMotor;
 }
 
-void zeroOutputReport(controller &x360Controller) {
+void zeroOutputReport(controller &x360Controller)
+{
 	uint8_t outputHID[BT_BUFFER_SIZE];
 	ZeroMemory(outputHID, x360Controller.hidOffset ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 	outputHID[0 + x360Controller.hidOffset] = 0x02;
@@ -276,22 +293,28 @@ void zeroOutputReport(controller &x360Controller) {
 	WriteFile(x360Controller.deviceHandle, outputHID, x360Controller.hidOffset ? sizeof(outputHID) : USB_BUFFER_SIZE, NULL, NULL);
 }
 
-static int initializeVirtualController(PVIGEM_TARGET& emulateX360, VIGEM_ERROR& target, PVIGEM_CLIENT& client) {
-	if (client == nullptr) return -1;
+static int initializeVirtualController(PVIGEM_TARGET &emulateX360, VIGEM_ERROR &target, PVIGEM_CLIENT &client)
+{
+	if (client == nullptr)
+		return -1;
 	const auto retval = vigem_connect(client);
-	if (!VIGEM_SUCCESS(retval)) return -1;
+	if (!VIGEM_SUCCESS(retval))
+		return -1;
 	emulateX360 = vigem_target_x360_alloc();
 	target = vigem_target_add(client, emulateX360);
 	return 0;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
 	controller x360Controller{};
 
 	x360Controller.client = vigem_alloc();
 
-	if (x360Controller.client == NULL || initializeVirtualController(x360Controller.emulateX360, x360Controller.target, x360Controller.client) != 0) {
-		if (MessageBox(NULL, L"The app couldn't start, please install VigemBusDriver ,if this error persists please open an issue on github", L"Vigem bus", MB_YESNO | MB_TASKMODAL) == IDNO) return -1;
+	if (x360Controller.client == NULL || initializeVirtualController(x360Controller.emulateX360, x360Controller.target, x360Controller.client) != 0)
+	{
+		if (MessageBox(NULL, L"The app couldn't start, please install VigemBusDriver ,if this error persists please open an issue on github", L"Vigem bus", MB_YESNO | MB_TASKMODAL) == IDNO)
+			return -1;
 		ShellExecute(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
 		return -1;
 	}
@@ -299,13 +322,16 @@ int main(int argc, char* argv[]) {
 	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getRumble, &x360Controller);
 
 	uint64_t counter = 0;
-	while (true) {
+	while (true)
+	{
 		++counter;
-		if (x360Controller.deviceHandle) {
+		if (x360Controller.deviceHandle)
+		{
 			getDualsenseInput(x360Controller, counter);
-			sendDualsenseOutputReport(x360Controller);
+			sendDualsenseOutputReport(x360Controller.deviceHandle, x360Controller.hidOffset, x360Controller.microphoneLed, counter);
 		}
-		else if (counter % 0xFFFF == 1) isDualsenseConnected(x360Controller);
+		else if (counter % 0xFFFF == 1)
+			isDualsenseConnected(x360Controller);
 		vigem_target_x360_update(x360Controller.client, x360Controller.emulateX360, x360Controller.ControllerState);
 	}
 
