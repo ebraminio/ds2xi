@@ -73,28 +73,28 @@ class Bridge
 
 		buffer[44 + isBluetooth] = ledNumber;
 		if (demo && ledNumber == 0)
-		{
-			uint8_t r = (counter / 100) % 4;
-			buffer[44 + isBluetooth] = r == 0 ? 0b00100 : (r == 1 ? 0b10101 : (r == 2 ? 0b10001 : 0b10101));
-		}
+			buffer[44 + isBluetooth] = (counter / 1000) % 2 ? 0b00100 : 0b10001;
 
 		if (demo)
 		{
-			if (redValue == 255)
-				redDirection = -1;
-			if (redValue == 0)
-				redDirection = 1;
-			if (greenValue == 255)
-				greenDirection = -1;
-			if (greenValue == 0)
-				greenDirection = 1;
-			if (blueValue == 255)
-				blueDirection = -1;
-			if (blueValue == 0)
-				blueDirection = 1;
-			redValue += 2.5f * redDirection;
-			greenValue += 2.5f * greenDirection;
-			blueValue += 2.5f * blueDirection;
+			if (counter % 0xF == 0)
+			{
+				if (redValue == 255)
+					redDirection = -1;
+				if (redValue == 0)
+					redDirection = 1;
+				if (greenValue == 255)
+					greenDirection = -1;
+				if (greenValue == 0)
+					greenDirection = 1;
+				if (blueValue == 255)
+					blueDirection = -1;
+				if (blueValue == 0)
+					blueDirection = 1;
+				redValue += 2.5f * redDirection;
+				greenValue += 2.5f * greenDirection;
+				blueValue += 2.5f * blueDirection;
+			}
 			buffer[45 + isBluetooth] = redValue;
 			buffer[46 + isBluetooth] = greenValue;
 			buffer[47 + isBluetooth] = blueValue;
@@ -330,9 +330,16 @@ public:
 
 	void sync()
 	{
-		++counter;
-		for (auto *bridge : bridges)
-			bridge->sync(counter);
+		if (bridges.empty())
+			Sleep(4);
+		else
+		{
+			++counter;
+			for (auto *bridge : bridges)
+			{
+				bridge->sync(counter);
+			}
+		}
 	}
 
 	~BridgeManager()
@@ -352,9 +359,6 @@ int main(int argc, char *argv[])
 	BridgeManager bridgeManager{};
 	ShellExecuteW(0, 0, L"C:\\Windows\\System32\\joy.cpl", 0, 0, SW_SHOW);
 	while (true)
-	{
 		bridgeManager.sync();
-		Sleep(4);
-	}
 	return 0;
 }
