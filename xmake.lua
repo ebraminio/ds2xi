@@ -1,7 +1,5 @@
 set_allowedplats("windows")
 
-add_requires("hidapi")
-
 target("ds2xi", function()
     set_languages("c++20")
     set_kind("binary")
