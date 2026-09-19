@@ -1,0 +1,33 @@
+name: Build
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+
+      - name: Configure
+        run: xmake f -m release -y
+
+      - name: Build
+        run: xmake build
+
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          files: build/windows/x64/release/ds2xi.exe
+  
