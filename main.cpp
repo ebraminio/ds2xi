@@ -12,7 +12,6 @@ class Bridge
 {
 	// Actual controller's handle and connection type
 	hid_device *device;
-	hid_device_info *deviceInfo;
 	bool isBluetooth;
 
 	// Things to get from the virtual controller and pass to the actual one
@@ -20,7 +19,7 @@ class Bridge
 	uint8_t largeMotor;
 	uint8_t ledNumber;
 
-	//
+	// Controller state variables
 	int shortTriggers;
 	int batteryLevel;
 	float redValue = 210, greenValue = 0, blueValue = 90;
@@ -106,22 +105,22 @@ class Bridge
 		return true;
 	}
 
-	bool getDualsenseInput(uint64_t counter)
+	void getDualsenseInput(uint64_t counter)
 	{
 		uint8_t buffer[574];
 		int bufferSize = hid_read(device, buffer, sizeof(buffer));
 		if (bufferSize == 0)
 			// Non blocking read can return 0 data
-			return true;
+			return;
 		else if (bufferSize == -1)
 		{
 			printf("%ls\n", hid_read_error(device));
-			return false;
+			return;
 		}
 		else if (bufferSize < 54)
 		{
 			printf("Buffer size is too small: %d\n", bufferSize);
-			return false;
+			return;
 		}
 
 		// Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
@@ -180,7 +179,6 @@ class Bridge
 			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_LEFT;
 
 		vigem_target_x360_update(vigemClient, virtualController, gamepadReport);
-		return true;
 	}
 
 	/*
@@ -227,23 +225,20 @@ class Bridge
 	}
 
 public:
-	bool sync(uint64_t counter)
+	void sync(uint64_t counter)
 	{
-		if (!getDualsenseInput(counter))
-			return false;
+		getDualsenseInput(counter);
 		sendDualsenseOutputReport(counter);
-		return true;
 	}
 
 	bool matches(hid_device_info *deviceInfo)
 	{
-		return this->deviceInfo == deviceInfo;
+		return wcscmp(hid_get_device_info(device)->serial_number, deviceInfo->serial_number) == 0;
 	}
 
 	Bridge(PVIGEM_CLIENT vigemClient, hid_device_info *deviceInfo)
 	{
 		this->vigemClient = vigemClient;
-		this->deviceInfo = deviceInfo;
 		this->isBluetooth = deviceInfo->interface_number == -1;
 
 		device = hid_open(deviceInfo->vendor_id, deviceInfo->product_id, deviceInfo->serial_number);
@@ -254,17 +249,15 @@ public:
 		hid_set_nonblocking(device, true);
 
 		this->virtualController = vigem_target_x360_alloc();
-		VIGEM_ERROR error = vigem_target_add(vigemClient, virtualController);
+		if (!VIGEM_SUCCESS(vigem_target_add(vigemClient, virtualController)))
+			printf("Failed to add virtual controller: %ls\n", hid_error(device));
 		vigem_target_x360_register_notification(vigemClient, virtualController, &getUpdatesFromVirualController, this);
 	}
 
 	~Bridge()
 	{
-		if (device != nullptr)
-		{
-			zeroOutputReport();
-			hid_close(device);
-		}
+		zeroOutputReport();
+		hid_close(device);
 		vigem_target_remove(vigemClient, virtualController);
 		vigem_target_free(virtualController);
 	}
@@ -299,16 +292,15 @@ class BridgeManager
 		bridges.insert(new Bridge(vigemClient, deviceInfo));
 	}
 
-	bool remove(hid_device_info *deviceInfo)
+	void remove(hid_device_info *deviceInfo)
 	{
 		for (auto *bridge : bridges)
 			if (bridge->matches(deviceInfo))
 			{
 				bridges.erase(bridge);
 				delete bridge;
-				return true;
+				break;
 			}
-		return false;
 	}
 
 	static constexpr int SONY_VENDOR_ID = 0x054c;
@@ -339,15 +331,8 @@ public:
 	void sync()
 	{
 		++counter;
-		std::erase_if(
-			bridges,
-			[&](Bridge *bridge)
-			{
-				bool succeed = bridge->sync(counter);
-				if (!succeed)
-					delete bridge;
-				return !succeed;
-			});
+		for (auto *bridge : bridges)
+			bridge->sync(counter);
 	}
 
 	~BridgeManager()
