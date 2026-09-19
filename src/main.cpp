@@ -155,7 +155,11 @@ static void sendDualsenseOutputReport(ControllerBridge &bridge, uint64_t counter
 
 static void getDualsenseInput(PVIGEM_CLIENT client, ControllerBridge &bridge, uint64_t counter)
 {
-	if (hid_read(bridge.actualControllerHandle, bridge.inputBuffer, bridge.bufferSize) == -1)
+	int readCount = hid_read(bridge.actualControllerHandle, bridge.inputBuffer, bridge.bufferSize);
+	if (readCount == 0)
+		// Non blocking read can return 0 data
+		return;
+	else if (readCount == -1)
 	{
 		printf("%ls\n", hid_read_error(bridge.actualControllerHandle));
 		hid_close(bridge.actualControllerHandle);
@@ -178,16 +182,16 @@ static void getDualsenseInput(PVIGEM_CLIENT client, ControllerBridge &bridge, ui
 	gamepadReport.bRightTrigger = bridge.inputBuffer[6 + isBluetooth] * (bridge.shortTriggers == 0) + (((bridge.inputBuffer[6 + isBluetooth]) >> 2) + 190) * (bridge.shortTriggers != 0);
 
 	// Normal Order
-	gamepadReport.wButtons = (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;					// Square
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;					// Cross
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;					// Circle
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;					// Triangle
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;		// Left Shoulder
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;	// Right Shoulder
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;				// Select
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;				// Start
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;		// Left Thumb
-	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;		// Right thumb
+	gamepadReport.wButtons = (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;               // Square
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;              // Cross
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;              // Circle
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[8 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;              // Triangle
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;  // Left Shoulder
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; // Right Shoulder
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;           // Select
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;          // Start
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;     // Left Thumb
+	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;    // Right thumb
 
 	// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
 	gamepadReport.wButtons |= (bool)(bridge.inputBuffer[10 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
