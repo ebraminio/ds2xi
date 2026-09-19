@@ -25,6 +25,7 @@ struct controller
 	PVIGEM_CLIENT client;
 	uint8_t inputBuffer[BT_BUFFER_SIZE];
 	uint8_t rumble[2];
+	uint8_t ledNumber;
 	bool hidOffset;
 	int shortTriggers;
 	PVIGEM_TARGET emulateX360;
@@ -145,9 +146,14 @@ static void sendDualsenseOutputReport(controller &x360Controller, uint64_t count
 	outputHID[4 + isBluetooth] = x360Controller.rumble[1]; // High Rumble
 
 	outputHID[9 + isBluetooth] = x360Controller.microphoneLed;
+
 	outputHID[39 + isBluetooth] = 0x02;
 	outputHID[42 + isBluetooth] = 0x02;
 	outputHID[43 + isBluetooth] = 0x02;
+
+	outputHID[44 + isBluetooth] = x360Controller.ledNumber;
+	if (demo && x360Controller.ledNumber == 0)
+		outputHID[44 + isBluetooth] = (counter / 400) % 2 ? 0b00100 : 0b10001;
 
 	if (demo)
 	{
@@ -270,11 +276,12 @@ static void getDualsenseInput(controller &x360Controller, uint64_t counter)
 		outputHID[31 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
 		*/
 
-static VOID CALLBACK getRumble(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
+static VOID CALLBACK getUpdatesFromVirualController(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
 {
 	controller& x360Controller = *reinterpret_cast<controller *>(UserData);
 	x360Controller.rumble[0] = SmallMotor;
 	x360Controller.rumble[1] = LargeMotor;
+	x360Controller.ledNumber = LedNumber;
 }
 
 static void zeroOutputReport(controller &x360Controller)
@@ -315,7 +322,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getRumble, &x360Controller);
+	vigem_target_x360_register_notification(x360Controller.client, x360Controller.emulateX360, &getUpdatesFromVirualController, &x360Controller);
 
 	uint64_t counter = 0;
 	while (true)
