@@ -44,7 +44,7 @@ class Bridge
 	static void add_crc_to_buffer(uint8_t *buffer)
 	{
 		buffer[0] = BT_REPORT_ID;
-		const UINT32 crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
+		const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
 		buffer[BT_PAYLOAD_BUFFER_SIZE] = crc & 0x000000FF;
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc & 0x0000FF00) >> 8UL;
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc & 0x00FF0000) >> 16UL;
