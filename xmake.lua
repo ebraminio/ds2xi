@@ -1,7 +1,6 @@
 set_allowedplats("windows")
 
 target("ds2xi", function()
-    set_languages("c++20")
     set_kind("binary")
     add_includedirs("hidapi/hidapi", "ViGEmClient/include")
     add_files("main.cpp", "hidapi/windows/hid.c", "ViGEmClient/src/*.cpp")
