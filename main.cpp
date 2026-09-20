@@ -286,7 +286,7 @@ class BridgeManager
 			nullptr,
 			&accentColor,
 			&dataSize);
-		if (SUCCEEDED(status))
+		if (status == ERROR_SUCCESS)
 			return true;
 		if (SUCCEEDED(DwmGetColorizationColor(&accentColor, nullptr)))
 		{
