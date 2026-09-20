@@ -1,8 +1,9 @@
 #include <windows.h>
+
 #include <unordered_set>
+#include <memory>
 #include <cstdio>
 #include <cstdint>
-#include <memory>
 
 #include "hidapi.h"
 #include "ViGEm/Client.h"
@@ -19,9 +20,7 @@ class Bridge
 	uint8_t smallMotor = 0;
 	uint8_t largeMotor = 0;
 	uint8_t ledNumber = 0;
-	uint8_t redValue = 0;
-	uint8_t greenValue = 0;
-	uint8_t blueValue = 0xff;
+	DWORD color = 0;
 	uint8_t batteryLevel = 0;
 
 	// Virtual controller handle
@@ -42,10 +41,10 @@ class Bridge
 			return;
 		buffer[0] = BT_REPORT_ID;
 		const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = crc & 0x000000FF;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc & 0x0000FF00) >> 8UL;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc & 0x00FF0000) >> 16UL;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc & 0xFF000000) >> 24UL;
+		buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = (crc >> 0) & 0xFF;
+		buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc >> 8) & 0xFF;
+		buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc >> 16) & 0xFF;
+		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc >> 24) & 0xFF;
 	}
 
 	void setDualSenseState()
@@ -67,9 +66,9 @@ class Bridge
 		buffer[42 + isBluetooth] = 0x02;
 		buffer[43 + isBluetooth] = 0x02;
 
-		buffer[45 + isBluetooth] = this->redValue;
-		buffer[46 + isBluetooth] = this->greenValue;
-		buffer[47 + isBluetooth] = this->blueValue;
+		buffer[45 + isBluetooth] = (this->color >> 0) & 0xFF; // Red component
+		buffer[46 + isBluetooth] = (this->color >> 8) & 0xFF;  // Green component
+		buffer[47 + isBluetooth] = (this->color >> 16) & 0xFF;  // Blue component
 
 		if (this->ledNumber == 0)
 		{
@@ -108,7 +107,7 @@ class Bridge
 		if (batteryLevel != newBatteryLevel)
 		{
 			batteryLevel = newBatteryLevel;
-			printf("new battery level: %d\n", batteryLevel);
+			printf("New battery level: %d\n", batteryLevel);
 			setDualSenseState();
 		}
 
@@ -204,10 +203,17 @@ public:
 		return wcscmp(hid_get_device_info(device)->serial_number, deviceInfo->serial_number) == 0;
 	}
 
-	Bridge(PVIGEM_CLIENT vigemClient, hid_device_info *deviceInfo)
+	void updateColor(DWORD color)
+	{
+		this->color = color;
+		setDualSenseState();
+	}
+
+	Bridge(PVIGEM_CLIENT vigemClient, hid_device_info *deviceInfo, DWORD color)
 	{
 		this->vigemClient = vigemClient;
 		this->isBluetooth = deviceInfo->interface_number == -1;
+		this->color = color;
 
 		device = hid_open(deviceInfo->vendor_id, deviceInfo->product_id, deviceInfo->serial_number);
 		if (device == nullptr)
@@ -220,6 +226,7 @@ public:
 		if (!VIGEM_SUCCESS(vigem_target_add(vigemClient, virtualController)))
 			printf("Failed to add virtual controller: %ls\n", hid_error(device));
 		vigem_target_x360_register_notification(vigemClient, virtualController, &getUpdatesFromVirualController, this);
+
 		setDualSenseState();
 	}
 
@@ -240,6 +247,7 @@ class BridgeManager
 	PVIGEM_CLIENT vigemClient = vigem_alloc();
 	hid_hotplug_callback_handle hotplugHandle = 0;
 	hid_hotplug_callback_handle hotplugEdgeHandle = 0;
+	DWORD accentColor = 0x00FF0000; // Default color (blue)
 
 	static int hotplugCallback(
 		hid_hotplug_callback_handle callback_handle,
@@ -257,7 +265,7 @@ class BridgeManager
 
 	void add(hid_device_info *deviceInfo)
 	{
-		bridges.insert(std::make_unique<Bridge>(vigemClient, deviceInfo));
+		bridges.insert(std::make_unique<Bridge>(vigemClient, deviceInfo, accentColor));
 	}
 
 	void remove(hid_device_info *deviceInfo)
@@ -300,6 +308,22 @@ public:
 				bridge->sync();
 	}
 
+	void updateColor()
+	{
+		DWORD dataSize = sizeof(DWORD);
+		LSTATUS status = RegGetValueW(
+			HKEY_CURRENT_USER,
+			L"Software\\Microsoft\\Windows\\DWM",
+			L"AccentColor",
+			RRF_RT_REG_DWORD,
+			nullptr,
+			&accentColor,
+			&dataSize);
+		if (SUCCEEDED(status))
+			for (auto &bridge : bridges)
+				bridge->updateColor(accentColor);
+	}
+
 	~BridgeManager()
 	{
 		hid_hotplug_deregister_callback(hotplugHandle);
@@ -321,6 +345,10 @@ static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, 
 	case WM_DESTROY:
 		PostQuitMessage(ERROR_SUCCESS);
 		return 0;
+
+	case WM_SETTINGCHANGE:
+		reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
+		break;
 
 	case notifyClickId:
 		if (lParam == WM_RBUTTONUP)
@@ -359,6 +387,7 @@ int main(int argc, char *argv[])
 	}
 
 	HWND hWnd = CreateWindowExW(0, appId, nullptr, 0, 0, 0, 0, 0, nullptr, nullptr, hInst, nullptr);
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&bridgeManager));
 
 	NOTIFYICONDATAW notifyIconData{};
 

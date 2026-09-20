@@ -5,7 +5,7 @@ target("ds2xi", function()
     set_languages("c++20")
     add_includedirs("hidapi/hidapi", "ViGEmClient/include")
     add_files("main.cpp", "hidapi/windows/hid.c", "ViGEmClient/src/ViGEmClient.cpp")
-    add_syslinks("user32", "kernel32", "shell32", "setupapi")
+    add_syslinks("user32", "kernel32", "shell32", "advapi32", "setupapi")
     set_runtimes("MT")
 
     if is_mode("release") and is_plat("windows") then
