@@ -37,7 +37,7 @@ class Bridge
 	static constexpr unsigned BT_BUFFER_SIZE = 547;
 	static constexpr unsigned BT_REPORT_ID = 0x31;
 
-	void add_crc_to_buffer(uint8_t *buffer)
+	void addCrcToBuffer(uint8_t *buffer)
 	{
 		if (!isBluetooth)
 			return;
@@ -82,8 +82,19 @@ class Bridge
 		else
 			buffer[44 + isBluetooth] = this->ledNumber;
 
-		add_crc_to_buffer(buffer);
+		addCrcToBuffer(buffer);
 		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+	}
+
+	void cleanControllerState()
+	{
+		uint8_t outputHID[BT_BUFFER_SIZE];
+		ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+		outputHID[0 + isBluetooth] = 0x02;
+		outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
+		outputHID[2 + isBluetooth] = 0x55;
+		addCrcToBuffer(outputHID);
+		hid_write(device, outputHID, isBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
 	}
 
 	void getDualSenseInput()
@@ -183,17 +194,6 @@ class Bridge
 		bridge.setDualSenseState();
 	}
 
-	void cleanControllerState()
-	{
-		uint8_t outputHID[BT_BUFFER_SIZE];
-		ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-		outputHID[0 + isBluetooth] = 0x02;
-		outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
-		outputHID[2 + isBluetooth] = 0x55;
-		add_crc_to_buffer(outputHID);
-		hid_write(device, outputHID, isBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
-	}
-
 public:
 	void sync()
 	{
@@ -276,6 +276,20 @@ class BridgeManager
 					  { return bridge->matches(deviceInfo); });
 	}
 
+	bool fillColorFromRegistry()
+	{
+		DWORD dataSize = sizeof(accentColor);
+		LSTATUS status = RegGetValueW(
+			HKEY_CURRENT_USER,
+			L"Software\\Microsoft\\Windows\\DWM",
+			L"AccentColor",
+			RRF_RT_REG_DWORD,
+			nullptr,
+			&accentColor,
+			&dataSize);
+		return SUCCEEDED(status);
+	}
+
 	static constexpr int SONY_VENDOR_ID = 0x054c;
 
 	static constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
@@ -287,10 +301,12 @@ public:
 	{
 		if (vigemClient == nullptr || !VIGEM_SUCCESS(vigem_connect(vigemClient)))
 		{
-			if (MessageBoxW(NULL, L"The app couldn't start, please install VigemBusDriver", L"Vigem bus", MB_YESNO | MB_TASKMODAL) != IDNO)
+			if (MessageBoxW(nullptr, L"The app couldn't start, please install VigemBusDriver", L"Vigem bus", MB_YESNO | MB_TASKMODAL) != IDNO)
 				ShellExecuteW(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
 			exit(-1);
 		}
+
+		fillColorFromRegistry();
 
 		if (
 			hid_hotplug_register_callback(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED | HID_API_HOTPLUG_EVENT_DEVICE_LEFT, HID_API_HOTPLUG_ENUMERATE, hotplugCallback, this, &hotplugHandle) != 0 ||
@@ -312,16 +328,7 @@ public:
 
 	void updateColor()
 	{
-		DWORD dataSize = sizeof(DWORD);
-		LSTATUS status = RegGetValueW(
-			HKEY_CURRENT_USER,
-			L"Software\\Microsoft\\Windows\\DWM",
-			L"AccentColor",
-			RRF_RT_REG_DWORD,
-			nullptr,
-			&accentColor,
-			&dataSize);
-		if (SUCCEEDED(status))
+		if (fillColorFromRegistry())
 			for (auto &bridge : bridges)
 				bridge->updateColor(accentColor);
 	}
