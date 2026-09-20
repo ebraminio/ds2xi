@@ -8,6 +8,7 @@
 
 #include "hidapi.h"
 #include "ViGEm/Client.h"
+
 #include "crc32.h"
 
 // A connection between actual DualSense controller and virtual XInput device, created per matched controller
@@ -154,7 +155,7 @@ class Bridge
 			gamepadReport.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB; // Right Thumb
 		if (buffer[10 + isBluetooth] & (1 << 0))
 			gamepadReport.wButtons |= XUSB_GAMEPAD_GUIDE; // PS Button
-		// Other useful bits on 10th bytes,
+		// Other useful bits on 10th byte,
 		// 1 << 1 => Touchpad Button
 		// 1 << 2 => Mic Button
 		// DualSense Edge:
