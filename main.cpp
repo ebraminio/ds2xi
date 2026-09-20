@@ -20,7 +20,6 @@ class Bridge
 	uint8_t ledNumber;
 
 	// Controller state variables
-	int shortTriggers;
 	int batteryLevel;
 	float redValue = 210, greenValue = 0, blueValue = 90;
 	int redDirection = 1, greenDirection = 1, blueDirection = 1;
@@ -132,8 +131,8 @@ class Bridge
 		gamepadReport.sThumbRX = (buffer[3 + isBluetooth] * 257) - 32768;
 		gamepadReport.sThumbRY = 32767 - (buffer[4 + isBluetooth] * 257);
 
-		gamepadReport.bLeftTrigger = buffer[5 + isBluetooth] * (shortTriggers == 0) + (((buffer[5 + isBluetooth]) >> 2) + 190) * (shortTriggers != 0);
-		gamepadReport.bRightTrigger = buffer[6 + isBluetooth] * (shortTriggers == 0) + (((buffer[6 + isBluetooth]) >> 2) + 190) * (shortTriggers != 0);
+		gamepadReport.bLeftTrigger = buffer[5 + isBluetooth];
+		gamepadReport.bRightTrigger = buffer[6 + isBluetooth];
 
 		// Normal Order
 		gamepadReport.wButtons = (bool)(buffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;				// Square
@@ -354,11 +353,81 @@ public:
 	}
 };
 
+static constexpr unsigned notifyClickId = WM_USER + 1;
+
+static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	switch (msg)
+	{
+	case WM_DESTROY:
+		PostQuitMessage(ERROR_SUCCESS);
+		return 0;
+
+	case notifyClickId:
+		if (lParam == WM_RBUTTONUP)
+			PostQuitMessage(ERROR_SUCCESS);
+		else if (lParam == WM_LBUTTONUP)
+			ShellExecuteW(0, 0, L"C:\\Windows\\System32\\joy.cpl", 0, 0, SW_SHOW);
+		return 0;
+
+	default:
+		break;
+	}
+	return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+constexpr auto appId = L"ds2xi";
+
 int main(int argc, char *argv[])
 {
+	HANDLE mutex = CreateMutexW(nullptr, 0, appId);
+	if (GetLastError() == ERROR_ALREADY_EXISTS)
+	{
+		printf("Another instance of the app is already running.\n");
+		return -1;
+	}
+
 	BridgeManager bridgeManager{};
-	ShellExecuteW(0, 0, L"C:\\Windows\\System32\\joy.cpl", 0, 0, SW_SHOW);
+
+	HINSTANCE hInst = GetModuleHandleW(nullptr);
+	{
+		WNDCLASSEXW wc{};
+		wc.hInstance = hInst;
+		wc.cbSize = sizeof(WNDCLASSEXW);
+		wc.lpfnWndProc = trayWindowProcedure;
+		wc.lpszClassName = appId;
+		RegisterClassExW(&wc);
+	}
+
+	HWND hWnd = CreateWindowExW(0, appId, nullptr, 0, 0, 0, 0, 0, nullptr, nullptr, hInst, nullptr);
+
+	NOTIFYICONDATAW notifyIconData{};
+
+	HICON hIcon = nullptr;
+	ExtractIconExW(L"joy.cpl", 0, &hIcon, nullptr, 1);
+	notifyIconData.hIcon = hIcon;
+	notifyIconData.cbSize = sizeof(NOTIFYICONDATAW);
+	notifyIconData.uCallbackMessage = notifyClickId;
+	notifyIconData.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+	notifyIconData.hWnd = hWnd;
+	wcscpy_s(notifyIconData.szTip, L"DualSense to XInput");
+	Shell_NotifyIconW(NIM_ADD, &notifyIconData);
+
+	MSG msg;
 	while (true)
+	{
+		if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == WM_QUIT)
+				break;
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
 		bridgeManager.sync();
+	}
+
+	Shell_NotifyIconW(NIM_DELETE, &notifyIconData);
+	DestroyIcon(notifyIconData.hIcon);
+
 	return 0;
 }
