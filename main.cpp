@@ -311,7 +311,7 @@ public:
 	{
 		if (vigemClient == nullptr || !VIGEM_SUCCESS(vigem_connect(vigemClient)))
 		{
-			if (MessageBoxW(nullptr, L"The app couldn't start, please install VigemBusDriver", L"Vigem bus", MB_YESNO | MB_TASKMODAL) != IDNO)
+			if (MessageBoxW(nullptr, L"The app couldn't start, please install ViGEmBusDriver", L"ViGEm Bus", MB_YESNO | MB_TASKMODAL) != IDNO)
 				ShellExecuteW(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
 			exit(-1);
 		}
