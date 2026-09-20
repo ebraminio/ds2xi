@@ -19,14 +19,6 @@ class Bridge
 	uint8_t largeMotor;
 	uint8_t ledNumber;
 
-	// Controller state variables
-	int batteryLevel;
-	float redValue = 210, greenValue = 0, blueValue = 90;
-	int redDirection = 1, greenDirection = 1, blueDirection = 1;
-
-	// Things to pass to the actual controller
-	bool microphoneLed;
-
 	// Virtual controller handle
 	PVIGEM_TARGET virtualController;
 	VIGEM_ERROR error;
@@ -34,7 +26,6 @@ class Bridge
 	// ViGEm client handle
 	PVIGEM_CLIENT vigemClient;
 
-	static constexpr bool demo = true;
 	static constexpr unsigned USB_BUFFER_SIZE = 64;
 	static constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
 	static constexpr unsigned BT_BUFFER_SIZE = 547;
@@ -50,7 +41,7 @@ class Bridge
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc & 0xFF000000) >> 24UL;
 	}
 
-	bool sendDualsenseOutputReport(uint64_t counter)
+	bool setDualSenseState()
 	{
 		uint8_t buffer[BT_BUFFER_SIZE];
 		ZeroMemory(buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -64,47 +55,19 @@ class Bridge
 
 		buffer[3 + isBluetooth] = smallMotor; // Low Rumble
 		buffer[4 + isBluetooth] = largeMotor; // High Rumble
-		buffer[9 + isBluetooth] = microphoneLed;
 
 		buffer[39 + isBluetooth] = 0x02;
 		buffer[42 + isBluetooth] = 0x02;
 		buffer[43 + isBluetooth] = 0x02;
 
 		buffer[44 + isBluetooth] = ledNumber;
-		if (demo && ledNumber == 0)
-			buffer[44 + isBluetooth] = (counter / 1000) % 2 ? 0b00100 : 0b10001;
-
-		if (demo)
-		{
-			if (counter % 0xF == 0)
-			{
-				if (redValue == 255)
-					redDirection = -1;
-				if (redValue == 0)
-					redDirection = 1;
-				if (greenValue == 255)
-					greenDirection = -1;
-				if (greenValue == 0)
-					greenDirection = 1;
-				if (blueValue == 255)
-					blueDirection = -1;
-				if (blueValue == 0)
-					blueDirection = 1;
-				redValue += 2.5f * redDirection;
-				greenValue += 2.5f * greenDirection;
-				blueValue += 2.5f * blueDirection;
-			}
-			buffer[45 + isBluetooth] = redValue;
-			buffer[46 + isBluetooth] = greenValue;
-			buffer[47 + isBluetooth] = blueValue;
-		}
 		if (isBluetooth)
 			add_crc_to_buffer(buffer);
 		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 		return true;
 	}
 
-	void getDualsenseInput(uint64_t counter)
+	void getDualSenseInput()
 	{
 		uint8_t buffer[574];
 		int bufferSize = hid_read(device, buffer, sizeof(buffer));
@@ -122,9 +85,6 @@ class Bridge
 			return;
 		}
 
-		// Because of a bug on the Dualsense HID this needs to be implemented or else battery might display higher than 100 %
-		batteryLevel = min((buffer[53 + isBluetooth] & 15) * 12.5, 100);
-
 		XUSB_REPORT gamepadReport{};
 		gamepadReport.sThumbLX = (buffer[1 + isBluetooth] * 257) - 32768;
 		gamepadReport.sThumbLY = 32767 - (buffer[2 + isBluetooth] * 257);
@@ -134,7 +94,6 @@ class Bridge
 		gamepadReport.bLeftTrigger = buffer[5 + isBluetooth];
 		gamepadReport.bRightTrigger = buffer[6 + isBluetooth];
 
-		// Normal Order
 		gamepadReport.wButtons = (bool)(buffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;				// Square
 		gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;				// Cross
 		gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;				// Circle
@@ -145,19 +104,7 @@ class Bridge
 		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;			// Start
 		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;		// Left Thumb
 		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;	// Right thumb
-
-		// XUSB_GAMEPAD_GUIDE is undocumented on XInput, but it is used by the Xbox button on the controller. The DualSense controller has a similar button, which is mapped to the GUIDE button in this code.
 		gamepadReport.wButtons |= (bool)(buffer[10 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
-		// 1 << 1 => Touchpad Button
-		// 1 << 2 => Mic Button
-		// DualSense Edge:
-		//  1 << 4 => Left Function
-		//  1 << 5 => Right Function
-		//  1 << 6 => Left Paddle
-		//  1 << 7 => Right Paddle
-		if (demo)
-			// Turn on the microphone LED if either the touchpad button or the mic button is pressed
-			microphoneLed = buffer[10 + isBluetooth] & (1 << 1) || buffer[10 + isBluetooth] & (1 << 2);
 
 		uint8_t dpad = buffer[8 + isBluetooth] & 0x0f;
 		if (dpad == 0)
@@ -180,29 +127,6 @@ class Bridge
 		vigem_target_x360_update(vigemClient, virtualController, gamepadReport);
 	}
 
-	/*
-	*		Triggers Documentation
-	*
-	*
-			outputHID[11 + bluetooth]; //Mode Motor Right
-			outputHID[12 + bluetooth]; //right trigger start of resistance section
-			outputHID[13 + bluetooth]; //right trigger (mode1) amount of force exerted (mode2) end of resistance section supplemental mode 4+20) flag(s?) 0x02 = do not pause effect when fully presse
-			outputHID[14 + bluetooth]; //right trigger force exerted in range (mode2)
-			outputHID[15 + bluetooth]; // strength of effect near release state (requires supplement modes 4 and 20)
-			outputHID[16 + bluetooth]; // strength of effect near middle (requires supplement modes 4 and 20)
-			outputHID[17 + bluetooth]; // strength of effect at pressed state (requires supplement modes 4 and 20)
-			outputHID[20 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
-
-			outputHID[22 + bluetooth]; //Mode Motor Left
-			outputHID[23 + bluetooth]; //Left trigger start of resistance section
-			outputHID[24 + bluetooth]; //Left trigger (mode1) amount of force exerted (mode2) end of resistance section supplemental mode 4+20) flag(s?) 0x02 = do not pause effect when fully presse
-			outputHID[25 + bluetooth]; //Left trigger force exerted in range (mode2)
-			outputHID[26 + bluetooth]; // strength of effect near release state (requires supplement modes 4 and 20)
-			outputHID[27 + bluetooth]; // strength of effect near middle (requires supplement modes 4 and 20)
-			outputHID[28 + bluetooth]; // strength of effect at pressed state (requires supplement modes 4 and 20)
-			outputHID[31 + bluetooth]; // effect actuation frequency in Hz (requires supplement modes 4 and 20)
-			*/
-
 	static VOID CALLBACK getUpdatesFromVirualController(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
 	{
 		auto &bridge = *reinterpret_cast<Bridge *>(UserData);
@@ -224,10 +148,10 @@ class Bridge
 	}
 
 public:
-	void sync(uint64_t counter)
+	void sync()
 	{
-		getDualsenseInput(counter);
-		sendDualsenseOutputReport(counter);
+		getDualSenseInput();
+		setDualSenseState();
 	}
 
 	bool matches(hid_device_info *deviceInfo)
@@ -270,7 +194,6 @@ class BridgeManager
 	PVIGEM_CLIENT vigemClient = vigem_alloc();
 	hid_hotplug_callback_handle hotplugHandle = 0;
 	hid_hotplug_callback_handle hotplugEdgeHandle = 0;
-	uint64_t counter = 0;
 
 	static int hotplugCallback(
 		hid_hotplug_callback_handle callback_handle,
@@ -332,13 +255,8 @@ public:
 		if (bridges.empty())
 			Sleep(4);
 		else
-		{
-			++counter;
 			for (auto *bridge : bridges)
-			{
-				bridge->sync(counter);
-			}
-		}
+				bridge->sync();
 	}
 
 	~BridgeManager()
