@@ -6,4 +6,9 @@ target("ds2xi", function()
     add_files("main.cpp", "hidapi/windows/hid.c", "ViGEmClient/src/*.cpp")
     add_syslinks("user32", "kernel32", "shell32", "setupapi")
     set_runtimes("MT")
+
+    if is_mode("release") and is_plat("windows") then
+        add_ldflags("-subsystem:windows", {force = true})
+        add_ldflags("-entry:mainCRTStartup", {force = true}) -- Ensures it still looks for main()
+    end
 end)
