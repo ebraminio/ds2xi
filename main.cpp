@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <dwmapi.h>
 
 #include <unordered_set>
 #include <memory>
@@ -247,7 +248,7 @@ class BridgeManager
 	PVIGEM_CLIENT vigemClient = vigem_alloc();
 	hid_hotplug_callback_handle hotplugHandle = 0;
 	hid_hotplug_callback_handle hotplugEdgeHandle = 0;
-	DWORD accentColor = 0x00FF0000; // Default color (blue)
+	DWORD accentColor = 0;
 
 	static int hotplugCallback(
 		hid_hotplug_callback_handle callback_handle,
@@ -274,7 +275,7 @@ class BridgeManager
 					  { return bridge->matches(deviceInfo); });
 	}
 
-	bool fillColorFromRegistry()
+	bool fillColorFromSystem()
 	{
 		DWORD dataSize = sizeof(accentColor);
 		LSTATUS status = RegGetValueW(
@@ -285,7 +286,18 @@ class BridgeManager
 			nullptr,
 			&accentColor,
 			&dataSize);
-		return SUCCEEDED(status);
+		if (SUCCEEDED(status))
+			return true;
+		if (SUCCEEDED(DwmGetColorizationColor(&accentColor, nullptr)))
+		{
+			// swap argb with abgr
+			accentColor = (accentColor & 0xFF00FF00) |
+						  ((accentColor & 0x000000FF) << 16) |
+						  ((accentColor & 0x00FF0000) >> 16);
+			return true;
+		}
+		accentColor = 0x00FF0000; // Default color (blue)
+		return false;
 	}
 
 	static constexpr int SONY_VENDOR_ID = 0x054c;
@@ -304,7 +316,7 @@ public:
 			exit(-1);
 		}
 
-		fillColorFromRegistry();
+		fillColorFromSystem();
 
 		if (
 			hid_hotplug_register_callback(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED | HID_API_HOTPLUG_EVENT_DEVICE_LEFT, HID_API_HOTPLUG_ENUMERATE, hotplugCallback, this, &hotplugHandle) != 0 ||
@@ -326,7 +338,7 @@ public:
 
 	void updateColor()
 	{
-		if (fillColorFromRegistry())
+		if (fillColorFromSystem())
 			for (auto &bridge : bridges)
 				bridge->updateColor(accentColor);
 	}
@@ -356,6 +368,10 @@ static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, 
 	case WM_SETTINGCHANGE:
 		if (lParam != 0 && wcscmp(reinterpret_cast<const wchar_t *>(lParam), L"ImmersiveColorSet") == 0)
 			reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
+		break;
+
+	case WM_DWMCOLORIZATIONCOLORCHANGED:
+		reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
 		break;
 
 	case notifyClickId:
