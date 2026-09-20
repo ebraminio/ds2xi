@@ -75,10 +75,10 @@ class Bridge
 		buffer[47 + isBluetooth] = (this->color >> 16) & 0xFF; // Blue component
 
 		if (this->ledNumber == 0)
-		{
-			static const uint8_t levels[] = {0b00000, 0b00001, 0b00011, 0b00111, 0b01111, 0b11111};
-			buffer[44 + isBluetooth] = levels[(this->batteryLevel >= 100) ? 5 : (this->batteryLevel * 5) / 100];
-		}
+			// 0b00000, 0b00001, 0b00011, 0b00111, 0b01111, 0b11111
+			buffer[44 + isBluetooth] = (this->batteryLevel == 0)	 ? 0
+									   : (this->batteryLevel >= 100) ? 31
+																	 : (1 << ((this->batteryLevel * 5) / 100)) - 1;
 		else
 			buffer[44 + isBluetooth] = this->ledNumber;
 
