@@ -66,9 +66,9 @@ class Bridge
 		buffer[42 + isBluetooth] = 0x02;
 		buffer[43 + isBluetooth] = 0x02;
 
-		buffer[45 + isBluetooth] = (this->color >> 0) & 0xFF; // Red component
+		buffer[45 + isBluetooth] = (this->color >> 0) & 0xFF;  // Red component
 		buffer[46 + isBluetooth] = (this->color >> 8) & 0xFF;  // Green component
-		buffer[47 + isBluetooth] = (this->color >> 16) & 0xFF;  // Blue component
+		buffer[47 + isBluetooth] = (this->color >> 16) & 0xFF; // Blue component
 
 		if (this->ledNumber == 0)
 		{
@@ -347,7 +347,8 @@ static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, 
 		return 0;
 
 	case WM_SETTINGCHANGE:
-		reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
+		if (lParam != 0 && wcscmp(reinterpret_cast<const wchar_t *>(lParam), L"ImmersiveColorSet") == 0)
+			reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
 		break;
 
 	case notifyClickId:
@@ -387,7 +388,7 @@ int main(int argc, char *argv[])
 	}
 
 	HWND hWnd = CreateWindowExW(0, appId, nullptr, 0, 0, 0, 0, 0, nullptr, nullptr, hInst, nullptr);
-    SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&bridgeManager));
+	SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&bridgeManager));
 
 	NOTIFYICONDATAW notifyIconData{};
 
