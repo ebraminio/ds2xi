@@ -12,34 +12,36 @@ class Bridge
 {
 	// Actual controller's handle and connection type
 	hid_device *device;
-	bool isBluetooth;
+	bool isBluetooth = false;
 
 	// Misc internal state
-	uint8_t smallMotor;
-	uint8_t largeMotor;
-	uint8_t ledNumber;
-	uint8_t redValue;
-	uint8_t greenValue;
+	uint8_t smallMotor = 0;
+	uint8_t largeMotor = 0;
+	uint8_t ledNumber = 0;
+	uint8_t redValue = 0;
+	uint8_t greenValue = 0;
 	uint8_t blueValue = 0xff;
-	uint8_t batteryLevel;
+	uint8_t batteryLevel = 0;
 
 	// Virtual controller handle
-	PVIGEM_TARGET virtualController;
-	VIGEM_ERROR error;
+	PVIGEM_TARGET virtualController = nullptr;
+	VIGEM_ERROR error = VIGEM_ERROR_NONE;
 
 	// ViGEm client handle
-	PVIGEM_CLIENT vigemClient;
+	PVIGEM_CLIENT vigemClient = nullptr;
 
 	static constexpr unsigned USB_BUFFER_SIZE = 64;
 	static constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
 	static constexpr unsigned BT_BUFFER_SIZE = 547;
 	static constexpr unsigned BT_REPORT_ID = 0x31;
 
-	static void add_crc_to_buffer(uint8_t *buffer)
+	void add_crc_to_buffer(uint8_t *buffer)
 	{
+		if (!isBluetooth)
+			return;
 		buffer[0] = BT_REPORT_ID;
 		const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
-		buffer[BT_PAYLOAD_BUFFER_SIZE] = crc & 0x000000FF;
+		buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = crc & 0x000000FF;
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc & 0x0000FF00) >> 8UL;
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc & 0x00FF0000) >> 16UL;
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc & 0xFF000000) >> 24UL;
@@ -69,12 +71,15 @@ class Bridge
 		buffer[47 + isBluetooth] = this->blueValue;
 
 		if (this->ledNumber == 0)
-			buffer[44 + isBluetooth] = this->batteryLevel / 100.0f * 0x1f;
-		else
-			buffer[44 + isBluetooth] = this->ledNumber;
+		{
+			static const uint8_t levels[] = {0b00000, 0b00001, 0b00011, 0b00111, 0b01111, 0b11111};
+			const unsigned levelsCount = sizeof(levels) / sizeof(levels[0]);
+			const unsigned levelIndex = min((this->batteryLevel / 100.f) * (levelsCount - 1), levelsCount - 1);
+			buffer[44 + isBluetooth] = levels[levelIndex];
+		}
+		else buffer[44 + isBluetooth] = this->ledNumber;
 
-		if (isBluetooth)
-			add_crc_to_buffer(buffer);
+		add_crc_to_buffer(buffer);
 		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 	}
 
@@ -101,6 +106,7 @@ class Bridge
 		if (batteryLevel != newBatteryLevel)
 		{
 			batteryLevel = newBatteryLevel;
+			printf("new battery level: %d\n", batteryLevel);
 			setDualSenseState();
 		}
 
@@ -162,8 +168,7 @@ class Bridge
 		outputHID[0 + isBluetooth] = 0x02;
 		outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
 		outputHID[2 + isBluetooth] = 0x55;
-		if (isBluetooth)
-			add_crc_to_buffer(outputHID);
+		add_crc_to_buffer(outputHID);
 		hid_write(device, outputHID, isBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
 	}
 
