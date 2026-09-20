@@ -116,7 +116,7 @@ class Bridge
 			printf("%ls\n", hid_read_error(device));
 			return;
 		}
-		else if (bufferSize < 54)
+		else if (bufferSize < 55)
 		{
 			printf("Buffer size is too small: %d\n", bufferSize);
 			return;
