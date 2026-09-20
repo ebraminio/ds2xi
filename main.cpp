@@ -12,6 +12,8 @@
 // A connection between actual DualSense controller and virtual XInput device, created per matched controller
 class Bridge
 {
+	Bridge(const Bridge &) = delete;
+	Bridge &operator=(const Bridge &) = delete;
 	// Actual controller's handle and connection type
 	hid_device *device = nullptr;
 	bool isBluetooth = false;
