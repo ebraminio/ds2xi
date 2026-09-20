@@ -14,10 +14,14 @@ class Bridge
 	hid_device *device;
 	bool isBluetooth;
 
-	// Things to get from the virtual controller and pass to the actual one
+	// Misc internal state
 	uint8_t smallMotor;
 	uint8_t largeMotor;
 	uint8_t ledNumber;
+	uint8_t redValue;
+	uint8_t greenValue;
+	uint8_t blueValue = 0xff;
+	uint8_t batteryLevel;
 
 	// Virtual controller handle
 	PVIGEM_TARGET virtualController;
@@ -41,7 +45,7 @@ class Bridge
 		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc & 0xFF000000) >> 24UL;
 	}
 
-	bool setDualSenseState()
+	void setDualSenseState()
 	{
 		uint8_t buffer[BT_BUFFER_SIZE];
 		ZeroMemory(buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -53,18 +57,25 @@ class Bridge
 		buffer[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
 		buffer[2 + isBluetooth] = 0x55;
 
-		buffer[3 + isBluetooth] = smallMotor; // Low Rumble
-		buffer[4 + isBluetooth] = largeMotor; // High Rumble
+		buffer[3 + isBluetooth] = this->smallMotor; // Low Rumble
+		buffer[4 + isBluetooth] = this->largeMotor; // High Rumble
 
 		buffer[39 + isBluetooth] = 0x02;
 		buffer[42 + isBluetooth] = 0x02;
 		buffer[43 + isBluetooth] = 0x02;
 
-		buffer[44 + isBluetooth] = ledNumber;
+		buffer[45 + isBluetooth] = this->redValue;
+		buffer[46 + isBluetooth] = this->greenValue;
+		buffer[47 + isBluetooth] = this->blueValue;
+
+		if (this->ledNumber == 0)
+			buffer[44 + isBluetooth] = this->batteryLevel / 100.0f * 0x1f;
+		else
+			buffer[44 + isBluetooth] = this->ledNumber;
+
 		if (isBluetooth)
 			add_crc_to_buffer(buffer);
 		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-		return true;
 	}
 
 	void getDualSenseInput()
@@ -83,6 +94,14 @@ class Bridge
 		{
 			printf("Buffer size is too small: %d\n", bufferSize);
 			return;
+		}
+
+		// Apparently can go higher than 100 due to a bug so let's cap it
+		uint8_t newBatteryLevel = min((buffer[53 + isBluetooth] & 15) * 12.5, 100);
+		if (batteryLevel != newBatteryLevel)
+		{
+			batteryLevel = newBatteryLevel;
+			setDualSenseState();
 		}
 
 		XUSB_REPORT gamepadReport{};
@@ -133,9 +152,10 @@ class Bridge
 		bridge.smallMotor = SmallMotor;
 		bridge.largeMotor = LargeMotor;
 		bridge.ledNumber = LedNumber;
+		bridge.setDualSenseState();
 	}
 
-	void zeroOutputReport()
+	void cleanControllerState()
 	{
 		uint8_t outputHID[BT_BUFFER_SIZE];
 		ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -151,7 +171,6 @@ public:
 	void sync()
 	{
 		getDualSenseInput();
-		setDualSenseState();
 	}
 
 	bool matches(hid_device_info *deviceInfo)
@@ -175,11 +194,12 @@ public:
 		if (!VIGEM_SUCCESS(vigem_target_add(vigemClient, virtualController)))
 			printf("Failed to add virtual controller: %ls\n", hid_error(device));
 		vigem_target_x360_register_notification(vigemClient, virtualController, &getUpdatesFromVirualController, this);
+		setDualSenseState();
 	}
 
 	~Bridge()
 	{
-		zeroOutputReport();
+		cleanControllerState();
 		hid_close(device);
 		vigem_target_remove(vigemClient, virtualController);
 		vigem_target_free(virtualController);
