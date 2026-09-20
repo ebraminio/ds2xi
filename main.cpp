@@ -75,9 +75,7 @@ class Bridge
 		if (this->ledNumber == 0)
 		{
 			static const uint8_t levels[] = {0b00000, 0b00001, 0b00011, 0b00111, 0b01111, 0b11111};
-			const unsigned levelsCount = sizeof(levels) / sizeof(levels[0]);
-			const unsigned levelIndex = min((this->batteryLevel / 100.f) * (levelsCount - 1), levelsCount - 1);
-			buffer[44 + isBluetooth] = levels[levelIndex];
+			buffer[44 + isBluetooth] = levels[(this->batteryLevel >= 100) ? 5 : (this->batteryLevel * 5) / 100];
 		}
 		else
 			buffer[44 + isBluetooth] = this->ledNumber;
