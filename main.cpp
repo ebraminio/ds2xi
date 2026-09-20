@@ -2,6 +2,7 @@
 #include <unordered_set>
 #include <cstdio>
 #include <cstdint>
+#include <memory>
 
 #include "hidapi.h"
 #include "ViGEm/Client.h"
@@ -11,7 +12,7 @@
 class Bridge
 {
 	// Actual controller's handle and connection type
-	hid_device *device;
+	hid_device *device = nullptr;
 	bool isBluetooth = false;
 
 	// Misc internal state
@@ -77,7 +78,8 @@ class Bridge
 			const unsigned levelIndex = min((this->batteryLevel / 100.f) * (levelsCount - 1), levelsCount - 1);
 			buffer[44 + isBluetooth] = levels[levelIndex];
 		}
-		else buffer[44 + isBluetooth] = this->ledNumber;
+		else
+			buffer[44 + isBluetooth] = this->ledNumber;
 
 		add_crc_to_buffer(buffer);
 		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
@@ -119,17 +121,36 @@ class Bridge
 		gamepadReport.bLeftTrigger = buffer[5 + isBluetooth];
 		gamepadReport.bRightTrigger = buffer[6 + isBluetooth];
 
-		gamepadReport.wButtons = (bool)(buffer[8 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_X : 0;				// Square
-		gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_A : 0;				// Cross
-		gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_B : 0;				// Circle
-		gamepadReport.wButtons |= (bool)(buffer[8 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_Y : 0;				// Triangle
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;	// Left Shoulder
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 1)) ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0; // Right Shoulder
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 4)) ? XUSB_GAMEPAD_BACK : 0;			// Select
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 5)) ? XUSB_GAMEPAD_START : 0;			// Start
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 6)) ? XUSB_GAMEPAD_LEFT_THUMB : 0;		// Left Thumb
-		gamepadReport.wButtons |= (bool)(buffer[9 + isBluetooth] & (1 << 7)) ? XUSB_GAMEPAD_RIGHT_THUMB : 0;	// Right thumb
-		gamepadReport.wButtons |= (bool)(buffer[10 + isBluetooth] & (1 << 0)) ? XUSB_GAMEPAD_GUIDE : 0;
+		if (buffer[8 + isBluetooth] & (1 << 4))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_X; // Square
+		if (buffer[8 + isBluetooth] & (1 << 5))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_A; // Cross
+		if (buffer[8 + isBluetooth] & (1 << 6))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_B; // Circle
+		if (buffer[8 + isBluetooth] & (1 << 7))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_Y; // Triangle
+		if (buffer[9 + isBluetooth] & (1 << 0))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER; // Left Shoulder
+		if (buffer[9 + isBluetooth] & (1 << 1))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER; // Right Shoulder
+		if (buffer[9 + isBluetooth] & (1 << 4))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_BACK; // Select
+		if (buffer[9 + isBluetooth] & (1 << 5))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_START; // Start
+		if (buffer[9 + isBluetooth] & (1 << 6))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_LEFT_THUMB; // Left Thumb
+		if (buffer[9 + isBluetooth] & (1 << 7))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB; // Right Thumb
+		if (buffer[10 + isBluetooth] & (1 << 0))
+			gamepadReport.wButtons |= XUSB_GAMEPAD_GUIDE; // PS Button
+		// Other useful bits on 10th bytes,
+		// 1 << 1 => Touchpad Button
+		// 1 << 2 => Mic Button
+		// DualSense Edge:
+		//  1 << 4 => Left Function
+		//  1 << 5 => Right Function
+		//  1 << 6 => Left Paddle
+		//  1 << 7 => Right Paddle
 
 		uint8_t dpad = buffer[8 + isBluetooth] & 0x0f;
 		if (dpad == 0)
@@ -215,7 +236,7 @@ class BridgeManager
 {
 	BridgeManager(const BridgeManager &) = delete;
 	BridgeManager &operator=(const BridgeManager &) = delete;
-	std::unordered_set<Bridge *> bridges{};
+	std::unordered_set<std::unique_ptr<Bridge>> bridges{};
 	PVIGEM_CLIENT vigemClient = vigem_alloc();
 	hid_hotplug_callback_handle hotplugHandle = 0;
 	hid_hotplug_callback_handle hotplugEdgeHandle = 0;
@@ -236,18 +257,13 @@ class BridgeManager
 
 	void add(hid_device_info *deviceInfo)
 	{
-		bridges.insert(new Bridge(vigemClient, deviceInfo));
+		bridges.insert(std::make_unique<Bridge>(vigemClient, deviceInfo));
 	}
 
 	void remove(hid_device_info *deviceInfo)
 	{
-		for (auto *bridge : bridges)
-			if (bridge->matches(deviceInfo))
-			{
-				bridges.erase(bridge);
-				delete bridge;
-				break;
-			}
+		std::erase_if(bridges, [&deviceInfo](const auto &bridge)
+					  { return bridge->matches(deviceInfo); });
 	}
 
 	static constexpr int SONY_VENDOR_ID = 0x054c;
@@ -280,7 +296,7 @@ public:
 		if (bridges.empty())
 			Sleep(4);
 		else
-			for (auto *bridge : bridges)
+			for (auto &bridge : bridges)
 				bridge->sync();
 	}
 
@@ -310,7 +326,7 @@ static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, 
 		if (lParam == WM_RBUTTONUP)
 			PostQuitMessage(ERROR_SUCCESS);
 		else if (lParam == WM_LBUTTONUP)
-			ShellExecuteW(0, 0, L"C:\\Windows\\System32\\joy.cpl", 0, 0, SW_SHOW);
+			ShellExecuteW(0, 0, L"joy.cpl", 0, 0, SW_SHOW);
 		return 0;
 
 	default:
@@ -346,7 +362,7 @@ int main(int argc, char *argv[])
 
 	NOTIFYICONDATAW notifyIconData{};
 
-	HICON hIcon = nullptr;
+	HICON hIcon{};
 	ExtractIconExW(L"joy.cpl", 0, &hIcon, nullptr, 1);
 	notifyIconData.hIcon = hIcon;
 	notifyIconData.cbSize = sizeof(NOTIFYICONDATAW);
@@ -356,7 +372,7 @@ int main(int argc, char *argv[])
 	wcscpy_s(notifyIconData.szTip, L"DualSense to XInput");
 	Shell_NotifyIconW(NIM_ADD, &notifyIconData);
 
-	MSG msg;
+	MSG msg{};
 	while (true)
 	{
 		if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
