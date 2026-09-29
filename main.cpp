@@ -1,7 +1,7 @@
 // main.cpp — All-in-one DualSense → XInput proxy DLL
 //
-// Built as XInput1_3.dll and placed next to a game executable.
-// The game loads this DLL instead of the system XInput1_3.dll.
+// Built as XInput1_4.dll and placed next to a game executable.
+// The game loads this DLL instead of the system XInput1_4.dll.
 // It reads a DualSense controller via hidapi and serves XInput state.
 // All other XInput calls are forwarded to the real system DLL.
 
@@ -10,99 +10,47 @@
 #include <windows.h>
 #include <shlwapi.h>
 #include <hidapi.h>
+#include <Xinput.h>
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
-#include <algorithm>
 
 #include "crc32.h"
 
-// ---------------------------------------------------------------------------
-// XInput type definitions
-// ---------------------------------------------------------------------------
-
-#define XINPUT_GAMEPAD_DPAD_UP          0x0001
-#define XINPUT_GAMEPAD_DPAD_DOWN        0x0002
-#define XINPUT_GAMEPAD_DPAD_LEFT        0x0004
-#define XINPUT_GAMEPAD_DPAD_RIGHT       0x0008
-#define XINPUT_GAMEPAD_START            0x0010
-#define XINPUT_GAMEPAD_BACK             0x0020
-#define XINPUT_GAMEPAD_LEFT_THUMB       0x0040
-#define XINPUT_GAMEPAD_RIGHT_THUMB      0x0080
-#define XINPUT_GAMEPAD_LEFT_SHOULDER    0x0100
-#define XINPUT_GAMEPAD_RIGHT_SHOULDER   0x0200
-#define XINPUT_GAMEPAD_GUIDE            0x0400
-#define XINPUT_GAMEPAD_A                0x1000
-#define XINPUT_GAMEPAD_B                0x2000
-#define XINPUT_GAMEPAD_X                0x4000
-#define XINPUT_GAMEPAD_Y                0x8000
-
-#define XINPUT_CAPS_FFB_SUPPORTED       0x0001
-#define XINPUT_FLAG_GAMEPAD             0x00000001
-#define XINPUT_DEVTYPE_GAMEPAD          0x01
-#define XINPUT_DEVSUBTYPE_GAMEPAD       0x01
-
-typedef struct _XINPUT_GAMEPAD
-{
-    WORD  wButtons;
-    BYTE  bLeftTrigger;
-    BYTE  bRightTrigger;
-    SHORT sThumbLX;
-    SHORT sThumbLY;
-    SHORT sThumbRX;
-    SHORT sThumbRY;
-} XINPUT_GAMEPAD, *PXINPUT_GAMEPAD;
-
-typedef struct _XINPUT_STATE
-{
-    DWORD          dwPacketNumber;
-    XINPUT_GAMEPAD Gamepad;
-} XINPUT_STATE, *PXINPUT_STATE;
-
-typedef struct _XINPUT_VIBRATION
-{
-    WORD wLeftMotorSpeed;
-    WORD wRightMotorSpeed;
-} XINPUT_VIBRATION, *PXINPUT_VIBRATION;
-
-typedef struct _XINPUT_CAPABILITIES
-{
-    BYTE           Type;
-    BYTE           SubType;
-    WORD           Flags;
-    XINPUT_GAMEPAD Gamepad;
-    XINPUT_VIBRATION Vibration;
-} XINPUT_CAPABILITIES, *PXINPUT_CAPABILITIES;
+// XINPUT_GAMEPAD_GUIDE is not defined in the official Xinput.h (it's a ViGEm extension)
+#define XINPUT_GAMEPAD_GUIDE 0x0400
 
 // ---------------------------------------------------------------------------
 // System XInput function pointers
 // ---------------------------------------------------------------------------
 
-typedef DWORD(WINAPI* PFN_XInputGetState)(DWORD, XINPUT_STATE*);
-typedef DWORD(WINAPI* PFN_XInputSetState)(DWORD, XINPUT_VIBRATION*);
-typedef DWORD(WINAPI* PFN_XInputGetCapabilities)(DWORD, DWORD, XINPUT_CAPABILITIES*);
-typedef void (WINAPI* PFN_XInputEnable)(BOOL);
-typedef DWORD(WINAPI* PFN_XInputGetDSoundAudioDeviceGuids)(DWORD, GUID*, GUID*);
-typedef DWORD(WINAPI* PFN_XInputGetBatteryInformation)(DWORD, BYTE, void*);
-typedef DWORD(WINAPI* PFN_XInputGetKeystroke)(DWORD, DWORD, void*);
+typedef DWORD(WINAPI *PFN_XInputGetState)(DWORD, XINPUT_STATE *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputSetState)(DWORD, XINPUT_VIBRATION *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetCapabilities)(DWORD, DWORD, XINPUT_CAPABILITIES *) noexcept;
+typedef void(WINAPI *PFN_XInputEnable)(BOOL) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetDSoundAudioDeviceGuids)(DWORD, GUID *, GUID *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetBatteryInformation)(DWORD, BYTE, XINPUT_BATTERY_INFORMATION *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetKeystroke)(DWORD, DWORD, PXINPUT_KEYSTROKE) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetStateEx)(DWORD, XINPUT_STATE *) noexcept;
 
-static HMODULE                     g_SystemXInput = nullptr;
-static PFN_XInputGetState          g_FpnGetState = nullptr;
-static PFN_XInputSetState          g_FpnSetState = nullptr;
-static PFN_XInputGetCapabilities   g_FpnGetCaps = nullptr;
-static PFN_XInputEnable            g_FpnEnable = nullptr;
+static HMODULE g_SystemXInput = nullptr;
+static PFN_XInputGetState g_FpnGetState = nullptr;
+static PFN_XInputSetState g_FpnSetState = nullptr;
+static PFN_XInputGetCapabilities g_FpnGetCaps = nullptr;
+static PFN_XInputEnable g_FpnEnable = nullptr;
 static PFN_XInputGetDSoundAudioDeviceGuids g_FpnGetDSound = nullptr;
 static PFN_XInputGetBatteryInformation g_FpnGetBattery = nullptr;
-static PFN_XInputGetKeystroke      g_FpnGetKeystroke = nullptr;
+static PFN_XInputGetKeystroke g_FpnGetKeystroke = nullptr;
+static PFN_XInputGetStateEx g_FpnGetStateEx = nullptr;
 
 // ---------------------------------------------------------------------------
 // DualSense state
 // ---------------------------------------------------------------------------
 
-static hid_device* g_DsDevice = nullptr;
-static bool        g_DsConnected = false;
-static bool        g_DsIsBluetooth = false;
-static DWORD       g_PacketNumber = 0;
+static hid_device *g_DsDevice = nullptr;
+static bool g_DsConnected = false;
+static bool g_DsIsBluetooth = false;
+static DWORD g_PacketNumber = 0;
 
 // Latest XInput state (written by PollDualSenseInput, read by XInputGetState)
 static XINPUT_STATE g_LastState = {};
@@ -113,7 +61,7 @@ static uint8_t g_LargeMotor = 0;
 
 // LED / color state
 static uint8_t g_LedNumber = 0;
-static DWORD  g_Color = 0x0000FF; // Default blue
+static DWORD g_Color = 0xFF0000; // Default blue
 static uint8_t g_BatteryLevel = 0;
 
 // DualSense constants
@@ -161,6 +109,8 @@ static bool LoadSystemXInput()
         GetProcAddress(g_SystemXInput, "XInputGetBatteryInformation"));
     g_FpnGetKeystroke = reinterpret_cast<PFN_XInputGetKeystroke>(
         GetProcAddress(g_SystemXInput, "XInputGetKeystroke"));
+    g_FpnGetStateEx = reinterpret_cast<PFN_XInputGetStateEx>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(100)));
 
     return true;
 }
@@ -169,7 +119,7 @@ static bool LoadSystemXInput()
 // DualSense output report (rumble + LED)
 // ---------------------------------------------------------------------------
 
-static void AddCrcToBuffer(uint8_t* buffer)
+static void AddCrcToBuffer(uint8_t *buffer)
 {
     if (!g_DsIsBluetooth)
         return;
@@ -205,9 +155,9 @@ static void SendDualSenseOutput()
     buffer[47 + g_DsIsBluetooth] = (g_Color >> 16) & 0xFF;
 
     if (g_LedNumber == 0)
-        buffer[44 + g_DsIsBluetooth] = (g_BatteryLevel == 0) ? 0
-            : (g_BatteryLevel >= 100) ? 31
-            : (1 << ((g_BatteryLevel * 5) / 100)) - 1;
+        buffer[44 + g_DsIsBluetooth] = (g_BatteryLevel == 0)     ? 0
+                                       : (g_BatteryLevel >= 100) ? 31
+                                                                 : (1 << ((g_BatteryLevel * 5) / 100)) - 1;
     else
         buffer[44 + g_DsIsBluetooth] = g_LedNumber;
 
@@ -219,7 +169,7 @@ static void SendDualSenseOutput()
 // DualSense enumeration
 // ---------------------------------------------------------------------------
 
-static bool IsDualSenseDevice(hid_device_info* info)
+static bool IsDualSenseDevice(hid_device_info *info)
 {
     return info->vendor_id == SONY_VID &&
            (info->product_id == DS_PID || info->product_id == DS_EDGE_PID);
@@ -230,16 +180,16 @@ static void TryConnectDualSense()
     if (g_DsConnected)
         return;
 
-    hid_device_info* devices = hid_enumerate(SONY_VID, 0);
+    hid_device_info *devices = hid_enumerate(SONY_VID, 0);
     if (!devices)
         return;
 
-    for (hid_device_info* cur = devices; cur; cur = cur->next)
+    for (hid_device_info *cur = devices; cur; cur = cur->next)
     {
         if (!IsDualSenseDevice(cur))
             continue;
 
-        hid_device* dev = hid_open_path(cur->path);
+        hid_device *dev = hid_open_path(cur->path);
         if (!dev)
             continue;
 
@@ -259,7 +209,7 @@ static void TryConnectDualSense()
 }
 
 // ---------------------------------------------------------------------------
-// DualSense input → XInput mapping
+// DualSense input → XInput mapping (called directly from XInputGetState)
 // ---------------------------------------------------------------------------
 
 static void PollDualSenseInput()
@@ -280,8 +230,8 @@ static void PollDualSenseInput()
     int off = bt ? 1 : 0;
 
     // Battery level
-    uint8_t newBattery = static_cast<uint8_t>(
-        std::min((buffer[53 + off] & 15) * 12.5, 100.0));
+    double newBatteryRaw = (buffer[53 + off] & 15) * 12.5;
+    uint8_t newBattery = newBatteryRaw < 100.0 ? static_cast<uint8_t>(newBatteryRaw) : 100;
     if (newBattery != g_BatteryLevel)
     {
         g_BatteryLevel = newBattery;
@@ -295,8 +245,7 @@ static void PollDualSenseInput()
     state.Gamepad.sThumbLX = static_cast<SHORT>((buffer[1 + off] * 257) - 32768);
     state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - (buffer[2 + off] * 257));
     state.Gamepad.sThumbRX = static_cast<SHORT>((buffer[3 + off] * 257) - 32768);
-    if (buffer[10 + off] & (1 << 2))
-        state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - (buffer[4 + off] * 257));
+    state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - (buffer[4 + off] * 257));
 
     state.Gamepad.bLeftTrigger = buffer[5 + off];
     state.Gamepad.bRightTrigger = buffer[6 + off];
@@ -327,42 +276,33 @@ static void PollDualSenseInput()
     uint8_t dpad = buffer[8 + off] & 0x0f;
     switch (dpad)
     {
-    case 0: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
-    case 1: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT; break;
-    case 2: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT; break;
-    case 3: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_RIGHT; break;
-    case 4: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN; break;
-    case 5: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT; break;
-    case 6: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT; break;
-    case 7: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_LEFT; break;
+    case 0:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
+        break;
+    case 1:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT;
+        break;
+    case 2:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+        break;
+    case 3:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_RIGHT;
+        break;
+    case 4:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
+        break;
+    case 5:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT;
+        break;
+    case 6:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
+        break;
+    case 7:
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_LEFT;
+        break;
     }
 
-    // Store for XInputGetState to return
     g_LastState = state;
-}
-
-// ---------------------------------------------------------------------------
-// Background polling thread
-// ---------------------------------------------------------------------------
-
-static HANDLE g_PollThread = nullptr;
-static volatile bool g_Running = false;
-
-static DWORD WINAPI PollThreadFunc(LPVOID)
-{
-    while (g_Running)
-    {
-        if (!g_DsConnected)
-        {
-            TryConnectDualSense();
-        }
-        else
-        {
-            PollDualSenseInput();
-        }
-        Sleep(1); // ~1000 Hz polling
-    }
-    return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,17 +317,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         DisableThreadLibraryCalls(hModule);
         LoadSystemXInput();
         hid_init();
-        g_Running = true;
-        g_PollThread = CreateThread(nullptr, 0, PollThreadFunc, nullptr, 0, nullptr);
         break;
 
     case DLL_PROCESS_DETACH:
-        g_Running = false;
-        if (g_PollThread)
-        {
-            WaitForSingleObject(g_PollThread, 1000);
-            CloseHandle(g_PollThread);
-        }
         if (g_DsDevice)
         {
             // Send clean state (no rumble)
@@ -410,22 +342,30 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 
 // ---------------------------------------------------------------------------
 // Exported XInput functions
+//
+// Note: We do NOT wrap these in extern "C" because <Xinput.h> already
+// declares them with C linkage. We also avoid __declspec(dllexport)
+// and use a .def file instead to prevent linkage conflicts.
 // ---------------------------------------------------------------------------
 
-extern "C" {
-
 // Ordinal 2
-__declspec(dllexport) DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState)
+DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState) noexcept
 {
-    if (dwUserIndex == 0 && g_DsConnected)
+    if (dwUserIndex == 0)
     {
         if (!pState)
             return ERROR_INVALID_PARAMETER;
 
-        // Poll once more for freshness
-        PollDualSenseInput();
-        *pState = g_LastState;
-        return ERROR_SUCCESS;
+        // Try to connect if not already connected
+        if (!g_DsConnected)
+            TryConnectDualSense();
+
+        if (g_DsConnected)
+        {
+            PollDualSenseInput();
+            *pState = g_LastState;
+            return ERROR_SUCCESS;
+        }
     }
 
     if (g_FpnGetState)
@@ -434,19 +374,25 @@ __declspec(dllexport) DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STAT
 }
 
 // Ordinal 3
-__declspec(dllexport) DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
+DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration) noexcept
 {
-    if (dwUserIndex == 0 && g_DsConnected)
+    if (dwUserIndex == 0)
     {
         if (!pVibration)
             return ERROR_INVALID_PARAMETER;
 
-        g_SmallMotor = pVibration->wRightMotorSpeed > 0 ? 0xFF : 0;
-        g_LargeMotor = static_cast<uint8_t>(
-            (static_cast<float>(pVibration->wLeftMotorSpeed) / 65535.0f) * 255.0f);
-        g_LedNumber = 0;
-        SendDualSenseOutput();
-        return ERROR_SUCCESS;
+        if (!g_DsConnected)
+            TryConnectDualSense();
+
+        if (g_DsConnected)
+        {
+            g_SmallMotor = pVibration->wRightMotorSpeed > 0 ? 0xFF : 0;
+            g_LargeMotor = static_cast<uint8_t>(
+                (static_cast<float>(pVibration->wLeftMotorSpeed) / 65535.0f) * 255.0f);
+            g_LedNumber = 0;
+            SendDualSenseOutput();
+            return ERROR_SUCCESS;
+        }
     }
 
     if (g_FpnSetState)
@@ -455,36 +401,41 @@ __declspec(dllexport) DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBR
 }
 
 // Ordinal 4
-__declspec(dllexport) DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPABILITIES* pCapabilities)
+DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPABILITIES *pCapabilities) noexcept
 {
-    if (dwUserIndex == 0 && g_DsConnected)
+    if (dwUserIndex == 0)
     {
         if (!pCapabilities)
             return ERROR_INVALID_PARAMETER;
         if (dwFlags != 0 && dwFlags != XINPUT_FLAG_GAMEPAD)
             return ERROR_BAD_ARGUMENTS;
 
-        ZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
-        pCapabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
-        pCapabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
-        pCapabilities->Flags = XINPUT_CAPS_FFB_SUPPORTED;
-        pCapabilities->Gamepad.wButtons = (
-            XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
-            XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT |
-            XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK |
-            XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB |
-            XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER |
-            XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B |
-            XINPUT_GAMEPAD_X | XINPUT_GAMEPAD_Y);
-        pCapabilities->Gamepad.bLeftTrigger = 0xFF;
-        pCapabilities->Gamepad.bRightTrigger = 0xFF;
-        pCapabilities->Gamepad.sThumbLX = -0x40;
-        pCapabilities->Gamepad.sThumbLY = -0x40;
-        pCapabilities->Gamepad.sThumbRX = -0x40;
-        pCapabilities->Gamepad.sThumbRY = -0x40;
-        pCapabilities->Vibration.wLeftMotorSpeed = 0xFFFF;
-        pCapabilities->Vibration.wRightMotorSpeed = 0xFFFF;
-        return ERROR_SUCCESS;
+        if (!g_DsConnected)
+            TryConnectDualSense();
+
+        if (g_DsConnected)
+        {
+            ZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
+            pCapabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
+            pCapabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
+            pCapabilities->Flags = XINPUT_CAPS_FFB_SUPPORTED;
+            pCapabilities->Gamepad.wButtons = (XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
+                                               XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT |
+                                               XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK |
+                                               XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB |
+                                               XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER |
+                                               XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B |
+                                               XINPUT_GAMEPAD_X | XINPUT_GAMEPAD_Y);
+            pCapabilities->Gamepad.bLeftTrigger = 0xFF;
+            pCapabilities->Gamepad.bRightTrigger = 0xFF;
+            pCapabilities->Gamepad.sThumbLX = -0x40;
+            pCapabilities->Gamepad.sThumbLY = -0x40;
+            pCapabilities->Gamepad.sThumbRX = -0x40;
+            pCapabilities->Gamepad.sThumbRY = -0x40;
+            pCapabilities->Vibration.wLeftMotorSpeed = 0xFFFF;
+            pCapabilities->Vibration.wRightMotorSpeed = 0xFFFF;
+            return ERROR_SUCCESS;
+        }
     }
 
     if (g_FpnGetCaps)
@@ -493,14 +444,14 @@ __declspec(dllexport) DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWOR
 }
 
 // Ordinal 5
-__declspec(dllexport) void WINAPI XInputEnable(BOOL enable)
+void WINAPI XInputEnable(BOOL enable) noexcept
 {
     if (g_FpnEnable)
         g_FpnEnable(enable);
 }
 
 // Ordinal 6
-__declspec(dllexport) DWORD WINAPI XInputGetDSoundAudioDeviceGuids(DWORD dwUserIndex, GUID* pDSoundRenderGuid, GUID* pDSoundCaptureGuid)
+DWORD WINAPI XInputGetDSoundAudioDeviceGuids(DWORD dwUserIndex, GUID *pDSoundRenderGuid, GUID *pDSoundCaptureGuid) noexcept
 {
     if (g_FpnGetDSound)
         return g_FpnGetDSound(dwUserIndex, pDSoundRenderGuid, pDSoundCaptureGuid);
@@ -508,7 +459,7 @@ __declspec(dllexport) DWORD WINAPI XInputGetDSoundAudioDeviceGuids(DWORD dwUserI
 }
 
 // Ordinal 7
-__declspec(dllexport) DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex, BYTE devType, void* pBatteryInformation)
+DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex, BYTE devType, XINPUT_BATTERY_INFORMATION *pBatteryInformation) noexcept
 {
     if (g_FpnGetBattery)
         return g_FpnGetBattery(dwUserIndex, devType, pBatteryInformation);
@@ -516,7 +467,7 @@ __declspec(dllexport) DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex
 }
 
 // Ordinal 8
-__declspec(dllexport) DWORD WINAPI XInputGetKeystroke(DWORD dwUserIndex, DWORD dwReserved, void* pKeystroke)
+DWORD WINAPI XInputGetKeystroke(DWORD dwUserIndex, DWORD dwReserved, PXINPUT_KEYSTROKE pKeystroke) noexcept
 {
     if (g_FpnGetKeystroke)
         return g_FpnGetKeystroke(dwUserIndex, dwReserved, pKeystroke);
@@ -524,9 +475,7 @@ __declspec(dllexport) DWORD WINAPI XInputGetKeystroke(DWORD dwUserIndex, DWORD d
 }
 
 // Ordinal 100 — XInputGetStateEx (undocumented)
-__declspec(dllexport) DWORD WINAPI XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE* pState)
+DWORD WINAPI XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE *pState) noexcept
 {
     return XInputGetState(dwUserIndex, pState);
 }
-
-} // extern "C"

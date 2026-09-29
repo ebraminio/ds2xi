@@ -1,18 +1,29 @@
 set_allowedplats("windows")
 
-target("xinput_proxy", function()
+target("hidapi", function()
+    set_kind("static")
+    add_includedirs("hidapi/hidapi", {public = true})
+    add_defines("HID_API_NO_EXPORT_DEFINE", {public = true})
+    add_files("hidapi/windows/hid.c")
+    set_runtimes("none")
+    set_exceptions("none")
+end)
+
+target("main", function()
     set_kind("shared")
+    add_deps("hidapi")
     set_languages("c++20")
-    add_includedirs("hidapi/hidapi")
-    add_files("main.cpp", "hidapi/windows/hid.c")
-    add_syslinks("user32", "kernel32", "shlwapi")
-    set_runtimes("MT")
-
-    -- Output as XInput1_3.dll so games load it instead of the system DLL
-    set_basename("XInput1_3")
+    add_files("main.cpp", "xinput.def")
+    add_syslinks("shlwapi")
+    set_runtimes("none")
+    set_exceptions("none")
+    set_basename("XInput1_4")
     set_prefixname("")
-
+    set_warnings("allextra")
+    set_optimize("faster")
     if is_mode("release") and is_plat("windows") then
         add_ldflags("-subsystem:windows", {force = true})
+        set_strip("all")
     end
 end)
+
