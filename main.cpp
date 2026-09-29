@@ -1,447 +1,532 @@
-#include <windows.h>
-#include <dwmapi.h>
+// main.cpp — All-in-one DualSense → XInput proxy DLL
+//
+// Built as XInput1_3.dll and placed next to a game executable.
+// The game loads this DLL instead of the system XInput1_3.dll.
+// It reads a DualSense controller via hidapi and serves XInput state.
+// All other XInput calls are forwarded to the real system DLL.
 
-#include <unordered_set>
-#include <memory>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shlwapi.h>
+#include <hidapi.h>
 #include <cstdio>
 #include <cstdint>
-
-#include "hidapi.h"
-#include "ViGEm/Client.h"
+#include <cmath>
+#include <algorithm>
 
 #include "crc32.h"
 
-// A connection between actual DualSense controller and virtual XInput device, created per matched controller
-class Bridge
+// ---------------------------------------------------------------------------
+// XInput type definitions
+// ---------------------------------------------------------------------------
+
+#define XINPUT_GAMEPAD_DPAD_UP          0x0001
+#define XINPUT_GAMEPAD_DPAD_DOWN        0x0002
+#define XINPUT_GAMEPAD_DPAD_LEFT        0x0004
+#define XINPUT_GAMEPAD_DPAD_RIGHT       0x0008
+#define XINPUT_GAMEPAD_START            0x0010
+#define XINPUT_GAMEPAD_BACK             0x0020
+#define XINPUT_GAMEPAD_LEFT_THUMB       0x0040
+#define XINPUT_GAMEPAD_RIGHT_THUMB      0x0080
+#define XINPUT_GAMEPAD_LEFT_SHOULDER    0x0100
+#define XINPUT_GAMEPAD_RIGHT_SHOULDER   0x0200
+#define XINPUT_GAMEPAD_GUIDE            0x0400
+#define XINPUT_GAMEPAD_A                0x1000
+#define XINPUT_GAMEPAD_B                0x2000
+#define XINPUT_GAMEPAD_X                0x4000
+#define XINPUT_GAMEPAD_Y                0x8000
+
+#define XINPUT_CAPS_FFB_SUPPORTED       0x0001
+#define XINPUT_FLAG_GAMEPAD             0x00000001
+#define XINPUT_DEVTYPE_GAMEPAD          0x01
+#define XINPUT_DEVSUBTYPE_GAMEPAD       0x01
+
+typedef struct _XINPUT_GAMEPAD
 {
-	Bridge(const Bridge &) = delete;
-	Bridge &operator=(const Bridge &) = delete;
-	// Actual controller's handle and connection type
-	hid_device *device = nullptr;
-	bool isBluetooth = false;
+    WORD  wButtons;
+    BYTE  bLeftTrigger;
+    BYTE  bRightTrigger;
+    SHORT sThumbLX;
+    SHORT sThumbLY;
+    SHORT sThumbRX;
+    SHORT sThumbRY;
+} XINPUT_GAMEPAD, *PXINPUT_GAMEPAD;
 
-	// Misc internal state
-	uint8_t smallMotor = 0;
-	uint8_t largeMotor = 0;
-	uint8_t ledNumber = 0;
-	DWORD color = 0;
-	uint8_t batteryLevel = 0;
-
-	// Virtual controller handle
-	PVIGEM_TARGET virtualController = nullptr;
-	VIGEM_ERROR error = VIGEM_ERROR_NONE;
-
-	// ViGEm client handle
-	PVIGEM_CLIENT vigemClient = nullptr;
-
-	static constexpr unsigned USB_BUFFER_SIZE = 64;
-	static constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
-	static constexpr unsigned BT_BUFFER_SIZE = 547;
-	static constexpr unsigned BT_REPORT_ID = 0x31;
-
-	void addCrcToBuffer(uint8_t *buffer)
-	{
-		if (!isBluetooth)
-			return;
-		buffer[0] = BT_REPORT_ID;
-		const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = (crc >> 0) & 0xFF;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc >> 8) & 0xFF;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc >> 16) & 0xFF;
-		buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc >> 24) & 0xFF;
-	}
-
-	void setDualSenseState()
-	{
-		uint8_t buffer[BT_BUFFER_SIZE];
-		ZeroMemory(buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-
-		// USB Report ID or BT additional Flag
-		buffer[0 + isBluetooth] = 0x02;
-
-		// Trigger Flags
-		buffer[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
-		buffer[2 + isBluetooth] = 0x55;
-
-		buffer[3 + isBluetooth] = this->smallMotor; // Low Rumble
-		buffer[4 + isBluetooth] = this->largeMotor; // High Rumble
-
-		buffer[39 + isBluetooth] = 0x02;
-		buffer[42 + isBluetooth] = 0x02;
-		buffer[43 + isBluetooth] = 0x02;
-
-		buffer[45 + isBluetooth] = (this->color >> 0) & 0xFF;  // Red component
-		buffer[46 + isBluetooth] = (this->color >> 8) & 0xFF;  // Green component
-		buffer[47 + isBluetooth] = (this->color >> 16) & 0xFF; // Blue component
-
-		if (this->ledNumber == 0)
-			// Use the following LED pattern to indicate battery level
-			// 0b00000, 0b00001, 0b00011, 0b00111, 0b01111, 0b11111 (displayed LTR)
-			buffer[44 + isBluetooth] = (this->batteryLevel == 0)	 ? 0
-									   : (this->batteryLevel >= 100) ? 31
-																	 : (1 << ((this->batteryLevel * 5) / 100)) - 1;
-		else
-			buffer[44 + isBluetooth] = this->ledNumber;
-
-		addCrcToBuffer(buffer);
-		hid_write(device, buffer, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-	}
-
-	void cleanControllerState()
-	{
-		uint8_t outputHID[BT_BUFFER_SIZE];
-		ZeroMemory(outputHID, isBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-		outputHID[0 + isBluetooth] = 0x02;
-		outputHID[1 + isBluetooth] = 0x03 | 0x04 | 0x08;
-		outputHID[2 + isBluetooth] = 0x55;
-		addCrcToBuffer(outputHID);
-		hid_write(device, outputHID, isBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
-	}
-
-	void getDualSenseInput()
-	{
-		uint8_t buffer[574];
-		int bufferSize = hid_read(device, buffer, sizeof(buffer));
-		if (bufferSize == 0)
-			// Non blocking read can return 0 data
-			return;
-		else if (bufferSize == -1)
-		{
-			printf("%ls\n", hid_read_error(device));
-			return;
-		}
-		else if (bufferSize < 55)
-		{
-			printf("Buffer size is too small: %d\n", bufferSize);
-			return;
-		}
-
-		// Apparently can go higher than 100 due to a bug so let's cap it
-		uint8_t newBatteryLevel = min((buffer[53 + isBluetooth] & 15) * 12.5, 100);
-		if (batteryLevel != newBatteryLevel)
-		{
-			batteryLevel = newBatteryLevel;
-			printf("New battery level: %d\n", batteryLevel);
-			setDualSenseState();
-		}
-
-		XUSB_REPORT gamepadReport{};
-		gamepadReport.sThumbLX = (buffer[1 + isBluetooth] * 257) - 32768;
-		gamepadReport.sThumbLY = 32767 - (buffer[2 + isBluetooth] * 257);
-		gamepadReport.sThumbRX = (buffer[3 + isBluetooth] * 257) - 32768;
-		gamepadReport.sThumbRY = 32767 - (buffer[4 + isBluetooth] * 257);
-
-		gamepadReport.bLeftTrigger = buffer[5 + isBluetooth];
-		gamepadReport.bRightTrigger = buffer[6 + isBluetooth];
-
-		if (buffer[8 + isBluetooth] & (1 << 4))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_X; // Square
-		if (buffer[8 + isBluetooth] & (1 << 5))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_A; // Cross
-		if (buffer[8 + isBluetooth] & (1 << 6))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_B; // Circle
-		if (buffer[8 + isBluetooth] & (1 << 7))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_Y; // Triangle
-		if (buffer[9 + isBluetooth] & (1 << 0))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER; // Left Shoulder
-		if (buffer[9 + isBluetooth] & (1 << 1))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER; // Right Shoulder
-		if (buffer[9 + isBluetooth] & (1 << 4))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_BACK; // Select
-		if (buffer[9 + isBluetooth] & (1 << 5))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_START; // Start
-		if (buffer[9 + isBluetooth] & (1 << 6))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_LEFT_THUMB; // Left Thumb
-		if (buffer[9 + isBluetooth] & (1 << 7))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB; // Right Thumb
-		if (buffer[10 + isBluetooth] & (1 << 0))
-			gamepadReport.wButtons |= XUSB_GAMEPAD_GUIDE; // PS Button
-		// Other useful bits on 10th byte,
-		// 1 << 1 => Touchpad Button
-		// 1 << 2 => Mic Button
-		// DualSense Edge:
-		//  1 << 4 => Left Function
-		//  1 << 5 => Right Function
-		//  1 << 6 => Left Paddle
-		//  1 << 7 => Right Paddle
-
-		uint8_t dpad = buffer[8 + isBluetooth] & 0x0f;
-		if (dpad == 0)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_UP;
-		else if (dpad == 1)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_RIGHT;
-		else if (dpad == 2)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_RIGHT;
-		else if (dpad == 3)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_RIGHT;
-		else if (dpad == 4)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_DOWN;
-		else if (dpad == 5)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_DOWN + XUSB_GAMEPAD_DPAD_LEFT;
-		else if (dpad == 6)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_LEFT;
-		else if (dpad == 7)
-			gamepadReport.wButtons |= XUSB_GAMEPAD_DPAD_UP + XUSB_GAMEPAD_DPAD_LEFT;
-
-		vigem_target_x360_update(vigemClient, virtualController, gamepadReport);
-	}
-
-	static VOID CALLBACK getUpdatesFromVirualController(PVIGEM_CLIENT Client, PVIGEM_TARGET Target, UCHAR LargeMotor, UCHAR SmallMotor, UCHAR LedNumber, LPVOID UserData)
-	{
-		auto &bridge = *reinterpret_cast<Bridge *>(UserData);
-		bridge.smallMotor = SmallMotor;
-		bridge.largeMotor = LargeMotor;
-		bridge.ledNumber = LedNumber;
-		bridge.setDualSenseState();
-	}
-
-public:
-	void sync()
-	{
-		getDualSenseInput();
-	}
-
-	bool matches(hid_device_info *deviceInfo)
-	{
-		return wcscmp(hid_get_device_info(device)->serial_number, deviceInfo->serial_number) == 0;
-	}
-
-	void updateColor(DWORD color)
-	{
-		this->color = color;
-		setDualSenseState();
-	}
-
-	Bridge(PVIGEM_CLIENT vigemClient, hid_device_info *deviceInfo, DWORD color)
-	{
-		this->vigemClient = vigemClient;
-		this->isBluetooth = deviceInfo->interface_number == -1;
-		this->color = color;
-
-		device = hid_open(deviceInfo->vendor_id, deviceInfo->product_id, deviceInfo->serial_number);
-		if (device == nullptr)
-			printf("%ls\n", hid_error(device));
-
-		// As we want to support multiple controllers, we set the device to non-blocking mode
-		hid_set_nonblocking(device, true);
-
-		this->virtualController = vigem_target_x360_alloc();
-		if (!VIGEM_SUCCESS(vigem_target_add(vigemClient, virtualController)))
-			printf("Failed to add virtual controller: %ls\n", hid_error(device));
-		vigem_target_x360_register_notification(vigemClient, virtualController, &getUpdatesFromVirualController, this);
-
-		setDualSenseState();
-	}
-
-	~Bridge()
-	{
-		cleanControllerState();
-		hid_close(device);
-		vigem_target_remove(vigemClient, virtualController);
-		vigem_target_free(virtualController);
-	}
-};
-
-class BridgeManager
+typedef struct _XINPUT_STATE
 {
-	BridgeManager(const BridgeManager &) = delete;
-	BridgeManager &operator=(const BridgeManager &) = delete;
-	std::unordered_set<std::unique_ptr<Bridge>> bridges{};
-	PVIGEM_CLIENT vigemClient = vigem_alloc();
-	hid_hotplug_callback_handle hotplugHandle = 0;
-	hid_hotplug_callback_handle hotplugEdgeHandle = 0;
-	DWORD accentColor = 0;
+    DWORD          dwPacketNumber;
+    XINPUT_GAMEPAD Gamepad;
+} XINPUT_STATE, *PXINPUT_STATE;
 
-	static int hotplugCallback(
-		hid_hotplug_callback_handle callback_handle,
-		struct hid_device_info *device,
-		hid_hotplug_event event,
-		void *user_data)
-	{
-		BridgeManager &manager = *reinterpret_cast<BridgeManager *>(user_data);
-		if (event == HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED)
-			manager.add(device);
-		else if (event == HID_API_HOTPLUG_EVENT_DEVICE_LEFT)
-			manager.remove(device);
-		return 0;
-	}
-
-	void add(hid_device_info *deviceInfo)
-	{
-		bridges.insert(std::make_unique<Bridge>(vigemClient, deviceInfo, accentColor));
-	}
-
-	void remove(hid_device_info *deviceInfo)
-	{
-		std::erase_if(bridges, [&deviceInfo](const auto &bridge)
-					  { return bridge->matches(deviceInfo); });
-	}
-
-	bool fillColorFromSystem()
-	{
-		DWORD dataSize = sizeof(accentColor);
-		LSTATUS status = RegGetValueW(
-			HKEY_CURRENT_USER,
-			L"Software\\Microsoft\\Windows\\DWM",
-			L"AccentColor",
-			RRF_RT_REG_DWORD,
-			nullptr,
-			&accentColor,
-			&dataSize);
-		if (status == ERROR_SUCCESS)
-			return true;
-		if (SUCCEEDED(DwmGetColorizationColor(&accentColor, nullptr)))
-		{
-			// swap argb with abgr
-			accentColor = (accentColor & 0xFF00FF00) |
-						  ((accentColor & 0x000000FF) << 16) |
-						  ((accentColor & 0x00FF0000) >> 16);
-			return true;
-		}
-		accentColor = 0x00FF0000; // Default color (blue)
-		return false;
-	}
-
-	static constexpr int SONY_VENDOR_ID = 0x054c;
-
-	static constexpr int DUALSENSE_PRODUCT_ID = 0x0ce6;
-	static constexpr int DUALSENSEEDGE_PRODUCT_ID = 0x0df2;
-	static constexpr int DUALSHOCK4_PRODUCT_ID = 0x09cc;
-
-public:
-	BridgeManager()
-	{
-		if (vigemClient == nullptr || !VIGEM_SUCCESS(vigem_connect(vigemClient)))
-		{
-			if (MessageBoxW(nullptr, L"The app couldn't start, please install ViGEmBusDriver", L"ViGEm Bus", MB_YESNO | MB_TASKMODAL) != IDNO)
-				ShellExecuteW(0, 0, L"https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0", 0, 0, SW_SHOW);
-			exit(-1);
-		}
-
-		fillColorFromSystem();
-
-		if (
-			hid_hotplug_register_callback(SONY_VENDOR_ID, DUALSENSE_PRODUCT_ID, HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED | HID_API_HOTPLUG_EVENT_DEVICE_LEFT, HID_API_HOTPLUG_ENUMERATE, hotplugCallback, this, &hotplugHandle) != 0 ||
-			hid_hotplug_register_callback(SONY_VENDOR_ID, DUALSENSEEDGE_PRODUCT_ID, HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED | HID_API_HOTPLUG_EVENT_DEVICE_LEFT, HID_API_HOTPLUG_ENUMERATE, hotplugCallback, this, &hotplugEdgeHandle) != 0)
-		{
-			printf("Failed to register hotplug callback\n");
-			exit(-1);
-		}
-	}
-
-	void sync()
-	{
-		if (bridges.empty())
-			Sleep(4);
-		else
-			for (auto &bridge : bridges)
-				bridge->sync();
-	}
-
-	void updateColor()
-	{
-		if (fillColorFromSystem())
-			for (auto &bridge : bridges)
-				bridge->updateColor(accentColor);
-	}
-
-	~BridgeManager()
-	{
-		hid_hotplug_deregister_callback(hotplugHandle);
-		hid_hotplug_deregister_callback(hotplugEdgeHandle);
-		if (vigemClient != nullptr)
-		{
-			vigem_disconnect(vigemClient);
-			vigem_free(vigemClient);
-		}
-	}
-};
-
-static constexpr unsigned notifyClickId = WM_USER + 1;
-
-static LRESULT CALLBACK trayWindowProcedure(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+typedef struct _XINPUT_VIBRATION
 {
-	switch (msg)
-	{
-	case WM_DESTROY:
-		PostQuitMessage(ERROR_SUCCESS);
-		return 0;
+    WORD wLeftMotorSpeed;
+    WORD wRightMotorSpeed;
+} XINPUT_VIBRATION, *PXINPUT_VIBRATION;
 
-	case WM_SETTINGCHANGE:
-		if (lParam != 0 && wcscmp(reinterpret_cast<const wchar_t *>(lParam), L"ImmersiveColorSet") == 0)
-			reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
-		break;
+typedef struct _XINPUT_CAPABILITIES
+{
+    BYTE           Type;
+    BYTE           SubType;
+    WORD           Flags;
+    XINPUT_GAMEPAD Gamepad;
+    XINPUT_VIBRATION Vibration;
+} XINPUT_CAPABILITIES, *PXINPUT_CAPABILITIES;
 
-	case WM_DWMCOLORIZATIONCOLORCHANGED:
-		reinterpret_cast<BridgeManager *>(GetWindowLongPtrW(hWnd, GWLP_USERDATA))->updateColor();
-		break;
+// ---------------------------------------------------------------------------
+// System XInput function pointers
+// ---------------------------------------------------------------------------
 
-	case notifyClickId:
-		if (lParam == WM_RBUTTONUP)
-			PostQuitMessage(ERROR_SUCCESS);
-		else if (lParam == WM_LBUTTONUP)
-			ShellExecuteW(0, 0, L"joy.cpl", 0, 0, SW_SHOW);
-		return 0;
+typedef DWORD(WINAPI* PFN_XInputGetState)(DWORD, XINPUT_STATE*);
+typedef DWORD(WINAPI* PFN_XInputSetState)(DWORD, XINPUT_VIBRATION*);
+typedef DWORD(WINAPI* PFN_XInputGetCapabilities)(DWORD, DWORD, XINPUT_CAPABILITIES*);
+typedef void (WINAPI* PFN_XInputEnable)(BOOL);
+typedef DWORD(WINAPI* PFN_XInputGetDSoundAudioDeviceGuids)(DWORD, GUID*, GUID*);
+typedef DWORD(WINAPI* PFN_XInputGetBatteryInformation)(DWORD, BYTE, void*);
+typedef DWORD(WINAPI* PFN_XInputGetKeystroke)(DWORD, DWORD, void*);
 
-	default:
-		break;
-	}
-	return DefWindowProcW(hWnd, msg, wParam, lParam);
+static HMODULE                     g_SystemXInput = nullptr;
+static PFN_XInputGetState          g_FpnGetState = nullptr;
+static PFN_XInputSetState          g_FpnSetState = nullptr;
+static PFN_XInputGetCapabilities   g_FpnGetCaps = nullptr;
+static PFN_XInputEnable            g_FpnEnable = nullptr;
+static PFN_XInputGetDSoundAudioDeviceGuids g_FpnGetDSound = nullptr;
+static PFN_XInputGetBatteryInformation g_FpnGetBattery = nullptr;
+static PFN_XInputGetKeystroke      g_FpnGetKeystroke = nullptr;
+
+// ---------------------------------------------------------------------------
+// DualSense state
+// ---------------------------------------------------------------------------
+
+static hid_device* g_DsDevice = nullptr;
+static bool        g_DsConnected = false;
+static bool        g_DsIsBluetooth = false;
+static DWORD       g_PacketNumber = 0;
+
+// Latest XInput state (written by PollDualSenseInput, read by XInputGetState)
+static XINPUT_STATE g_LastState = {};
+
+// Rumble state
+static uint8_t g_SmallMotor = 0;
+static uint8_t g_LargeMotor = 0;
+
+// LED / color state
+static uint8_t g_LedNumber = 0;
+static DWORD  g_Color = 0x0000FF; // Default blue
+static uint8_t g_BatteryLevel = 0;
+
+// DualSense constants
+static constexpr int SONY_VID = 0x054c;
+static constexpr int DS_PID = 0x0ce6;
+static constexpr int DS_EDGE_PID = 0x0df2;
+
+static constexpr unsigned USB_BUFFER_SIZE = 64;
+static constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
+static constexpr unsigned BT_BUFFER_SIZE = 547;
+static constexpr unsigned BT_REPORT_ID = 0x31;
+
+// ---------------------------------------------------------------------------
+// Load system XInput
+// ---------------------------------------------------------------------------
+
+static bool LoadSystemXInput()
+{
+    if (g_SystemXInput)
+        return true;
+
+    char sysDir[MAX_PATH] = {};
+    if (GetSystemDirectoryA(sysDir, MAX_PATH) == 0)
+        return false;
+
+    char fullPath[MAX_PATH] = {};
+    if (!PathCombineA(fullPath, sysDir, "XInput1_3.dll"))
+        return false;
+
+    g_SystemXInput = LoadLibraryA(fullPath);
+    if (!g_SystemXInput)
+        return false;
+
+    g_FpnGetState = reinterpret_cast<PFN_XInputGetState>(
+        GetProcAddress(g_SystemXInput, "XInputGetState"));
+    g_FpnSetState = reinterpret_cast<PFN_XInputSetState>(
+        GetProcAddress(g_SystemXInput, "XInputSetState"));
+    g_FpnGetCaps = reinterpret_cast<PFN_XInputGetCapabilities>(
+        GetProcAddress(g_SystemXInput, "XInputGetCapabilities"));
+    g_FpnEnable = reinterpret_cast<PFN_XInputEnable>(
+        GetProcAddress(g_SystemXInput, "XInputEnable"));
+    g_FpnGetDSound = reinterpret_cast<PFN_XInputGetDSoundAudioDeviceGuids>(
+        GetProcAddress(g_SystemXInput, "XInputGetDSoundAudioDeviceGuids"));
+    g_FpnGetBattery = reinterpret_cast<PFN_XInputGetBatteryInformation>(
+        GetProcAddress(g_SystemXInput, "XInputGetBatteryInformation"));
+    g_FpnGetKeystroke = reinterpret_cast<PFN_XInputGetKeystroke>(
+        GetProcAddress(g_SystemXInput, "XInputGetKeystroke"));
+
+    return true;
 }
 
-constexpr auto appId = L"ds2xi";
+// ---------------------------------------------------------------------------
+// DualSense output report (rumble + LED)
+// ---------------------------------------------------------------------------
 
-int main(int argc, char *argv[])
+static void AddCrcToBuffer(uint8_t* buffer)
 {
-	HANDLE mutex = CreateMutexW(nullptr, 0, appId);
-	if (GetLastError() == ERROR_ALREADY_EXISTS)
-	{
-		printf("Another instance of the app is already running.\n");
-		return -1;
-	}
-
-	BridgeManager bridgeManager{};
-
-	HINSTANCE hInst = GetModuleHandleW(nullptr);
-	{
-		WNDCLASSEXW wc{};
-		wc.hInstance = hInst;
-		wc.cbSize = sizeof(WNDCLASSEXW);
-		wc.lpfnWndProc = trayWindowProcedure;
-		wc.lpszClassName = appId;
-		RegisterClassExW(&wc);
-	}
-
-	HWND hWnd = CreateWindowExW(0, appId, nullptr, 0, 0, 0, 0, 0, nullptr, nullptr, hInst, nullptr);
-	SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&bridgeManager));
-
-	NOTIFYICONDATAW notifyIconData{};
-
-	HICON hIcon{};
-	ExtractIconExW(L"joy.cpl", 0, &hIcon, nullptr, 1);
-	notifyIconData.hIcon = hIcon;
-	notifyIconData.cbSize = sizeof(NOTIFYICONDATAW);
-	notifyIconData.uCallbackMessage = notifyClickId;
-	notifyIconData.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-	notifyIconData.hWnd = hWnd;
-	wcscpy_s(notifyIconData.szTip, L"DualSense to XInput");
-	Shell_NotifyIconW(NIM_ADD, &notifyIconData);
-
-	MSG msg{};
-	while (true)
-	{
-		if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
-		{
-			if (msg.message == WM_QUIT)
-				break;
-			TranslateMessage(&msg);
-			DispatchMessageW(&msg);
-		}
-		bridgeManager.sync();
-	}
-
-	Shell_NotifyIconW(NIM_DELETE, &notifyIconData);
-	DestroyIcon(notifyIconData.hIcon);
-
-	return 0;
+    if (!g_DsIsBluetooth)
+        return;
+    buffer[0] = BT_REPORT_ID;
+    const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
+    buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = (crc >> 0) & 0xFF;
+    buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc >> 8) & 0xFF;
+    buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc >> 16) & 0xFF;
+    buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc >> 24) & 0xFF;
 }
+
+static void SendDualSenseOutput()
+{
+    if (!g_DsDevice)
+        return;
+
+    uint8_t buffer[BT_BUFFER_SIZE];
+    ZeroMemory(buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+
+    buffer[0 + g_DsIsBluetooth] = 0x02;
+    buffer[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
+    buffer[2 + g_DsIsBluetooth] = 0x55;
+
+    buffer[3 + g_DsIsBluetooth] = g_SmallMotor;
+    buffer[4 + g_DsIsBluetooth] = g_LargeMotor;
+
+    buffer[39 + g_DsIsBluetooth] = 0x02;
+    buffer[42 + g_DsIsBluetooth] = 0x02;
+    buffer[43 + g_DsIsBluetooth] = 0x02;
+
+    buffer[45 + g_DsIsBluetooth] = (g_Color >> 0) & 0xFF;
+    buffer[46 + g_DsIsBluetooth] = (g_Color >> 8) & 0xFF;
+    buffer[47 + g_DsIsBluetooth] = (g_Color >> 16) & 0xFF;
+
+    if (g_LedNumber == 0)
+        buffer[44 + g_DsIsBluetooth] = (g_BatteryLevel == 0) ? 0
+            : (g_BatteryLevel >= 100) ? 31
+            : (1 << ((g_BatteryLevel * 5) / 100)) - 1;
+    else
+        buffer[44 + g_DsIsBluetooth] = g_LedNumber;
+
+    AddCrcToBuffer(buffer);
+    hid_write(g_DsDevice, buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+}
+
+// ---------------------------------------------------------------------------
+// DualSense enumeration
+// ---------------------------------------------------------------------------
+
+static bool IsDualSenseDevice(hid_device_info* info)
+{
+    return info->vendor_id == SONY_VID &&
+           (info->product_id == DS_PID || info->product_id == DS_EDGE_PID);
+}
+
+static void TryConnectDualSense()
+{
+    if (g_DsConnected)
+        return;
+
+    hid_device_info* devices = hid_enumerate(SONY_VID, 0);
+    if (!devices)
+        return;
+
+    for (hid_device_info* cur = devices; cur; cur = cur->next)
+    {
+        if (!IsDualSenseDevice(cur))
+            continue;
+
+        hid_device* dev = hid_open_path(cur->path);
+        if (!dev)
+            continue;
+
+        g_DsDevice = dev;
+        g_DsIsBluetooth = cur->interface_number == -1;
+        g_DsConnected = true;
+        g_BatteryLevel = 0;
+
+        hid_set_nonblocking(dev, true);
+        SendDualSenseOutput();
+
+        hid_free_enumeration(devices);
+        return;
+    }
+
+    hid_free_enumeration(devices);
+}
+
+// ---------------------------------------------------------------------------
+// DualSense input → XInput mapping
+// ---------------------------------------------------------------------------
+
+static void PollDualSenseInput()
+{
+    if (!g_DsDevice)
+        return;
+
+    uint8_t buffer[574];
+    int bytesRead = hid_read(g_DsDevice, buffer, sizeof(buffer));
+
+    if (bytesRead <= 0)
+        return;
+
+    if (bytesRead < 55)
+        return;
+
+    bool bt = g_DsIsBluetooth;
+    int off = bt ? 1 : 0;
+
+    // Battery level
+    uint8_t newBattery = static_cast<uint8_t>(
+        std::min((buffer[53 + off] & 15) * 12.5, 100.0));
+    if (newBattery != g_BatteryLevel)
+    {
+        g_BatteryLevel = newBattery;
+        SendDualSenseOutput();
+    }
+
+    // Build XInput state
+    XINPUT_STATE state{};
+    state.dwPacketNumber = ++g_PacketNumber;
+
+    state.Gamepad.sThumbLX = static_cast<SHORT>((buffer[1 + off] * 257) - 32768);
+    state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - (buffer[2 + off] * 257));
+    state.Gamepad.sThumbRX = static_cast<SHORT>((buffer[3 + off] * 257) - 32768);
+    if (buffer[10 + off] & (1 << 2))
+        state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - (buffer[4 + off] * 257));
+
+    state.Gamepad.bLeftTrigger = buffer[5 + off];
+    state.Gamepad.bRightTrigger = buffer[6 + off];
+
+    if (buffer[8 + off] & (1 << 4))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_X;
+    if (buffer[8 + off] & (1 << 5))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_A;
+    if (buffer[8 + off] & (1 << 6))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_B;
+    if (buffer[8 + off] & (1 << 7))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+    if (buffer[9 + off] & (1 << 0))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+    if (buffer[9 + off] & (1 << 1))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+    if (buffer[9 + off] & (1 << 4))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_BACK;
+    if (buffer[9 + off] & (1 << 5))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_START;
+    if (buffer[9 + off] & (1 << 6))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
+    if (buffer[9 + off] & (1 << 7))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+    if (buffer[10 + off] & (1 << 0))
+        state.Gamepad.wButtons |= XINPUT_GAMEPAD_GUIDE;
+
+    uint8_t dpad = buffer[8 + off] & 0x0f;
+    switch (dpad)
+    {
+    case 0: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
+    case 1: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT; break;
+    case 2: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT; break;
+    case 3: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_RIGHT; break;
+    case 4: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN; break;
+    case 5: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT; break;
+    case 6: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT; break;
+    case 7: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_LEFT; break;
+    }
+
+    // Store for XInputGetState to return
+    g_LastState = state;
+}
+
+// ---------------------------------------------------------------------------
+// Background polling thread
+// ---------------------------------------------------------------------------
+
+static HANDLE g_PollThread = nullptr;
+static volatile bool g_Running = false;
+
+static DWORD WINAPI PollThreadFunc(LPVOID)
+{
+    while (g_Running)
+    {
+        if (!g_DsConnected)
+        {
+            TryConnectDualSense();
+        }
+        else
+        {
+            PollDualSenseInput();
+        }
+        Sleep(1); // ~1000 Hz polling
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// DLL entry point
+// ---------------------------------------------------------------------------
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
+{
+    switch (reason)
+    {
+    case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls(hModule);
+        LoadSystemXInput();
+        hid_init();
+        g_Running = true;
+        g_PollThread = CreateThread(nullptr, 0, PollThreadFunc, nullptr, 0, nullptr);
+        break;
+
+    case DLL_PROCESS_DETACH:
+        g_Running = false;
+        if (g_PollThread)
+        {
+            WaitForSingleObject(g_PollThread, 1000);
+            CloseHandle(g_PollThread);
+        }
+        if (g_DsDevice)
+        {
+            // Send clean state (no rumble)
+            g_SmallMotor = 0;
+            g_LargeMotor = 0;
+            SendDualSenseOutput();
+            hid_close(g_DsDevice);
+            g_DsDevice = nullptr;
+        }
+        hid_exit();
+        if (g_SystemXInput)
+        {
+            FreeLibrary(g_SystemXInput);
+            g_SystemXInput = nullptr;
+        }
+        break;
+    }
+    return TRUE;
+}
+
+// ---------------------------------------------------------------------------
+// Exported XInput functions
+// ---------------------------------------------------------------------------
+
+extern "C" {
+
+// Ordinal 2
+__declspec(dllexport) DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState)
+{
+    if (dwUserIndex == 0 && g_DsConnected)
+    {
+        if (!pState)
+            return ERROR_INVALID_PARAMETER;
+
+        // Poll once more for freshness
+        PollDualSenseInput();
+        *pState = g_LastState;
+        return ERROR_SUCCESS;
+    }
+
+    if (g_FpnGetState)
+        return g_FpnGetState(dwUserIndex, pState);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 3
+__declspec(dllexport) DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION* pVibration)
+{
+    if (dwUserIndex == 0 && g_DsConnected)
+    {
+        if (!pVibration)
+            return ERROR_INVALID_PARAMETER;
+
+        g_SmallMotor = pVibration->wRightMotorSpeed > 0 ? 0xFF : 0;
+        g_LargeMotor = static_cast<uint8_t>(
+            (static_cast<float>(pVibration->wLeftMotorSpeed) / 65535.0f) * 255.0f);
+        g_LedNumber = 0;
+        SendDualSenseOutput();
+        return ERROR_SUCCESS;
+    }
+
+    if (g_FpnSetState)
+        return g_FpnSetState(dwUserIndex, pVibration);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 4
+__declspec(dllexport) DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPABILITIES* pCapabilities)
+{
+    if (dwUserIndex == 0 && g_DsConnected)
+    {
+        if (!pCapabilities)
+            return ERROR_INVALID_PARAMETER;
+        if (dwFlags != 0 && dwFlags != XINPUT_FLAG_GAMEPAD)
+            return ERROR_BAD_ARGUMENTS;
+
+        ZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
+        pCapabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
+        pCapabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
+        pCapabilities->Flags = XINPUT_CAPS_FFB_SUPPORTED;
+        pCapabilities->Gamepad.wButtons = (
+            XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
+            XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT |
+            XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK |
+            XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB |
+            XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER |
+            XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B |
+            XINPUT_GAMEPAD_X | XINPUT_GAMEPAD_Y);
+        pCapabilities->Gamepad.bLeftTrigger = 0xFF;
+        pCapabilities->Gamepad.bRightTrigger = 0xFF;
+        pCapabilities->Gamepad.sThumbLX = -0x40;
+        pCapabilities->Gamepad.sThumbLY = -0x40;
+        pCapabilities->Gamepad.sThumbRX = -0x40;
+        pCapabilities->Gamepad.sThumbRY = -0x40;
+        pCapabilities->Vibration.wLeftMotorSpeed = 0xFFFF;
+        pCapabilities->Vibration.wRightMotorSpeed = 0xFFFF;
+        return ERROR_SUCCESS;
+    }
+
+    if (g_FpnGetCaps)
+        return g_FpnGetCaps(dwUserIndex, dwFlags, pCapabilities);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 5
+__declspec(dllexport) void WINAPI XInputEnable(BOOL enable)
+{
+    if (g_FpnEnable)
+        g_FpnEnable(enable);
+}
+
+// Ordinal 6
+__declspec(dllexport) DWORD WINAPI XInputGetDSoundAudioDeviceGuids(DWORD dwUserIndex, GUID* pDSoundRenderGuid, GUID* pDSoundCaptureGuid)
+{
+    if (g_FpnGetDSound)
+        return g_FpnGetDSound(dwUserIndex, pDSoundRenderGuid, pDSoundCaptureGuid);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 7
+__declspec(dllexport) DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex, BYTE devType, void* pBatteryInformation)
+{
+    if (g_FpnGetBattery)
+        return g_FpnGetBattery(dwUserIndex, devType, pBatteryInformation);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 8
+__declspec(dllexport) DWORD WINAPI XInputGetKeystroke(DWORD dwUserIndex, DWORD dwReserved, void* pKeystroke)
+{
+    if (g_FpnGetKeystroke)
+        return g_FpnGetKeystroke(dwUserIndex, dwReserved, pKeystroke);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 100 — XInputGetStateEx (undocumented)
+__declspec(dllexport) DWORD WINAPI XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE* pState)
+{
+    return XInputGetState(dwUserIndex, pState);
+}
+
+} // extern "C"
