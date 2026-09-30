@@ -1,12 +1,4 @@
-// main.cpp — All-in-one DualSense → XInput proxy DLL
-//
-// Built as XInput1_4.dll and placed next to a game executable.
-// The game loads this DLL instead of the system XInput1_4.dll.
-// It reads a DualSense controller via hidapi and serves XInput state.
-// All other XInput calls are forwarded to the real system DLL.
-
 #define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #include <shlwapi.h>
 #include <hidapi.h>
@@ -17,8 +9,30 @@
 
 #include "crc32.h"
 
-// XINPUT_GAMEPAD_GUIDE is not defined in the official Xinput.h (it's a ViGEm extension)
+// XINPUT_GAMEPAD_GUIDE is not defined in the official Xinput.h
 #define XINPUT_GAMEPAD_GUIDE 0x0400
+
+// ---------------------------------------------------------------------------
+// Additional types not in the official Xinput.h
+// ---------------------------------------------------------------------------
+
+typedef struct _XINPUT_BASE_BUS_INFORMATION
+{
+    DWORD dwBusType;
+    DWORD dwVendorId;
+    DWORD dwProductId;
+    DWORD dwVersionNumber;
+    DWORD dwSerialNumber;
+} XINPUT_BASE_BUS_INFORMATION;
+
+typedef struct _XINPUT_CAPABILITIES_EX
+{
+    XINPUT_CAPABILITIES Capabilities;
+    WORD vendorId;
+    WORD productId;
+    WORD revisionId;
+    DWORD reserved[2];
+} XINPUT_CAPABILITIES_EX;
 
 // ---------------------------------------------------------------------------
 // System XInput function pointers
@@ -28,20 +42,32 @@ typedef DWORD(WINAPI *PFN_XInputGetState)(DWORD, XINPUT_STATE *) noexcept;
 typedef DWORD(WINAPI *PFN_XInputSetState)(DWORD, XINPUT_VIBRATION *) noexcept;
 typedef DWORD(WINAPI *PFN_XInputGetCapabilities)(DWORD, DWORD, XINPUT_CAPABILITIES *) noexcept;
 typedef void(WINAPI *PFN_XInputEnable)(BOOL) noexcept;
-typedef DWORD(WINAPI *PFN_XInputGetDSoundAudioDeviceGuids)(DWORD, GUID *, GUID *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetAudioDeviceIds)(DWORD, LPWSTR, UINT *, LPWSTR, UINT *) noexcept;
 typedef DWORD(WINAPI *PFN_XInputGetBatteryInformation)(DWORD, BYTE, XINPUT_BATTERY_INFORMATION *) noexcept;
 typedef DWORD(WINAPI *PFN_XInputGetKeystroke)(DWORD, DWORD, PXINPUT_KEYSTROKE) noexcept;
 typedef DWORD(WINAPI *PFN_XInputGetStateEx)(DWORD, XINPUT_STATE *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputWaitForGuideButton)(DWORD, DWORD, LPVOID) noexcept;
+typedef DWORD(WINAPI *PFN_XInputCancelGuideButtonWait)(DWORD) noexcept;
+typedef DWORD(WINAPI *PFN_XInputPowerOffController)(DWORD) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetBaseBusInformation)(DWORD, DWORD, XINPUT_BASE_BUS_INFORMATION *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetCapabilitiesEx)(DWORD, DWORD, XINPUT_CAPABILITIES_EX *) noexcept;
+typedef DWORD(WINAPI *PFN_XInputGetSystemButtons)(DWORD, XINPUT_KEYSTROKE *) noexcept;
 
 static HMODULE g_SystemXInput = nullptr;
 static PFN_XInputGetState g_FpnGetState = nullptr;
 static PFN_XInputSetState g_FpnSetState = nullptr;
 static PFN_XInputGetCapabilities g_FpnGetCaps = nullptr;
 static PFN_XInputEnable g_FpnEnable = nullptr;
-static PFN_XInputGetDSoundAudioDeviceGuids g_FpnGetDSound = nullptr;
+static PFN_XInputGetAudioDeviceIds g_FpnGetAudioDeviceIds = nullptr;
 static PFN_XInputGetBatteryInformation g_FpnGetBattery = nullptr;
 static PFN_XInputGetKeystroke g_FpnGetKeystroke = nullptr;
 static PFN_XInputGetStateEx g_FpnGetStateEx = nullptr;
+static PFN_XInputWaitForGuideButton g_FpnWaitForGuideButton = nullptr;
+static PFN_XInputCancelGuideButtonWait g_FpnCancelGuideButtonWait = nullptr;
+static PFN_XInputPowerOffController g_FpnPowerOffController = nullptr;
+static PFN_XInputGetBaseBusInformation g_FpnGetBaseBusInformation = nullptr;
+static PFN_XInputGetCapabilitiesEx g_FpnGetCapabilitiesEx = nullptr;
+static PFN_XInputGetSystemButtons g_FpnGetSystemButtons = nullptr;
 
 // ---------------------------------------------------------------------------
 // DualSense state
@@ -51,9 +77,6 @@ static hid_device *g_DsDevice = nullptr;
 static bool g_DsConnected = false;
 static bool g_DsIsBluetooth = false;
 static DWORD g_PacketNumber = 0;
-
-// Latest XInput state (written by PollDualSenseInput, read by XInputGetState)
-static XINPUT_STATE g_LastState = {};
 
 // Rumble state
 static uint8_t g_SmallMotor = 0;
@@ -88,7 +111,7 @@ static bool LoadSystemXInput()
         return false;
 
     char fullPath[MAX_PATH] = {};
-    if (!PathCombineA(fullPath, sysDir, "XInput1_3.dll"))
+    if (!PathCombineA(fullPath, sysDir, "XInput1_4.dll"))
         return false;
 
     g_SystemXInput = LoadLibraryA(fullPath);
@@ -103,14 +126,26 @@ static bool LoadSystemXInput()
         GetProcAddress(g_SystemXInput, "XInputGetCapabilities"));
     g_FpnEnable = reinterpret_cast<PFN_XInputEnable>(
         GetProcAddress(g_SystemXInput, "XInputEnable"));
-    g_FpnGetDSound = reinterpret_cast<PFN_XInputGetDSoundAudioDeviceGuids>(
-        GetProcAddress(g_SystemXInput, "XInputGetDSoundAudioDeviceGuids"));
+    g_FpnGetAudioDeviceIds = reinterpret_cast<PFN_XInputGetAudioDeviceIds>(
+        GetProcAddress(g_SystemXInput, "XInputGetAudioDeviceIds"));
     g_FpnGetBattery = reinterpret_cast<PFN_XInputGetBatteryInformation>(
         GetProcAddress(g_SystemXInput, "XInputGetBatteryInformation"));
     g_FpnGetKeystroke = reinterpret_cast<PFN_XInputGetKeystroke>(
         GetProcAddress(g_SystemXInput, "XInputGetKeystroke"));
     g_FpnGetStateEx = reinterpret_cast<PFN_XInputGetStateEx>(
         GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(100)));
+    g_FpnWaitForGuideButton = reinterpret_cast<PFN_XInputWaitForGuideButton>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(101)));
+    g_FpnCancelGuideButtonWait = reinterpret_cast<PFN_XInputCancelGuideButtonWait>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(102)));
+    g_FpnPowerOffController = reinterpret_cast<PFN_XInputPowerOffController>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(103)));
+    g_FpnGetBaseBusInformation = reinterpret_cast<PFN_XInputGetBaseBusInformation>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(104)));
+    g_FpnGetCapabilitiesEx = reinterpret_cast<PFN_XInputGetCapabilitiesEx>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(108)));
+    g_FpnGetSystemButtons = reinterpret_cast<PFN_XInputGetSystemButtons>(
+        GetProcAddress(g_SystemXInput, reinterpret_cast<LPCSTR>(109)));
 
     return true;
 }
@@ -165,6 +200,17 @@ static void SendDualSenseOutput()
     hid_write(g_DsDevice, buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 }
 
+static void CleanControllerState()
+{
+    uint8_t outputHID[BT_BUFFER_SIZE];
+    ZeroMemory(outputHID, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+    outputHID[0 + g_DsIsBluetooth] = 0x02;
+    outputHID[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
+    outputHID[2 + g_DsIsBluetooth] = 0x55;
+    AddCrcToBuffer(outputHID);
+    hid_write(g_DsDevice, outputHID, g_DsIsBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
+}
+
 // ---------------------------------------------------------------------------
 // DualSense enumeration
 // ---------------------------------------------------------------------------
@@ -212,19 +258,19 @@ static void TryConnectDualSense()
 // DualSense input → XInput mapping (called directly from XInputGetState)
 // ---------------------------------------------------------------------------
 
-static void PollDualSenseInput()
+static bool DualSenseGetState(XINPUT_STATE &state)
 {
     if (!g_DsDevice)
-        return;
+        return false;
 
     uint8_t buffer[574];
     int bytesRead = hid_read(g_DsDevice, buffer, sizeof(buffer));
 
     if (bytesRead <= 0)
-        return;
+        return false;
 
     if (bytesRead < 55)
-        return;
+        return false;
 
     bool bt = g_DsIsBluetooth;
     int off = bt ? 1 : 0;
@@ -239,7 +285,7 @@ static void PollDualSenseInput()
     }
 
     // Build XInput state
-    XINPUT_STATE state{};
+    ZeroMemory(&state, sizeof(state));
     state.dwPacketNumber = ++g_PacketNumber;
 
     state.Gamepad.sThumbLX = static_cast<SHORT>((buffer[1 + off] * 257) - 32768);
@@ -302,7 +348,7 @@ static void PollDualSenseInput()
         break;
     }
 
-    g_LastState = state;
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,10 +368,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
     case DLL_PROCESS_DETACH:
         if (g_DsDevice)
         {
-            // Send clean state (no rumble)
-            g_SmallMotor = 0;
-            g_LargeMotor = 0;
-            SendDualSenseOutput();
+            CleanControllerState();
             hid_close(g_DsDevice);
             g_DsDevice = nullptr;
         }
@@ -360,12 +403,8 @@ DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState) noexcept
         if (!g_DsConnected)
             TryConnectDualSense();
 
-        if (g_DsConnected)
-        {
-            PollDualSenseInput();
-            *pState = g_LastState;
+        if (g_DsConnected && pState && DualSenseGetState(*pState))
             return ERROR_SUCCESS;
-        }
     }
 
     if (g_FpnGetState)
@@ -451,16 +490,33 @@ void WINAPI XInputEnable(BOOL enable) noexcept
 }
 
 // Ordinal 6
-DWORD WINAPI XInputGetDSoundAudioDeviceGuids(DWORD dwUserIndex, GUID *pDSoundRenderGuid, GUID *pDSoundCaptureGuid) noexcept
+DWORD WINAPI XInputGetAudioDeviceIds(DWORD dwUserIndex, LPWSTR pRenderDeviceId, UINT *pRenderCount, LPWSTR pCaptureDeviceId, UINT *pCaptureCount) noexcept
 {
-    if (g_FpnGetDSound)
-        return g_FpnGetDSound(dwUserIndex, pDSoundRenderGuid, pDSoundCaptureGuid);
+    if (g_FpnGetAudioDeviceIds)
+        return g_FpnGetAudioDeviceIds(dwUserIndex, pRenderDeviceId, pRenderCount, pCaptureDeviceId, pCaptureCount);
     return ERROR_DEVICE_NOT_CONNECTED;
 }
 
 // Ordinal 7
 DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex, BYTE devType, XINPUT_BATTERY_INFORMATION *pBatteryInformation) noexcept
 {
+    if (dwUserIndex == 0)
+    {
+        if (pBatteryInformation)
+        {
+            pBatteryInformation->BatteryType = BATTERY_TYPE_NIMH; // It's actually litium polymer but this is best matching
+            if (g_BatteryLevel <= 10)
+                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_EMPTY;
+            else if (g_BatteryLevel <= 35)
+                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_LOW;
+            else if (g_BatteryLevel <= 75)
+                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_MEDIUM;
+            else
+                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_FULL;
+            return ERROR_SUCCESS;
+        }
+    }
+
     if (g_FpnGetBattery)
         return g_FpnGetBattery(dwUserIndex, devType, pBatteryInformation);
     return ERROR_DEVICE_NOT_CONNECTED;
@@ -478,4 +534,52 @@ DWORD WINAPI XInputGetKeystroke(DWORD dwUserIndex, DWORD dwReserved, PXINPUT_KEY
 DWORD WINAPI XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE *pState) noexcept
 {
     return XInputGetState(dwUserIndex, pState);
+}
+
+// Ordinal 101 — XInputWaitForGuideButton (undocumented)
+DWORD WINAPI XInputWaitForGuideButton(DWORD dwUserIndex, DWORD dwFlag, LPVOID pVoid) noexcept
+{
+    if (g_FpnWaitForGuideButton)
+        return g_FpnWaitForGuideButton(dwUserIndex, dwFlag, pVoid);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 102 — XInputCancelGuideButtonWait (undocumented)
+DWORD WINAPI XInputCancelGuideButtonWait(DWORD dwUserIndex) noexcept
+{
+    if (g_FpnCancelGuideButtonWait)
+        return g_FpnCancelGuideButtonWait(dwUserIndex);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 103 — XInputPowerOffController (undocumented)
+DWORD WINAPI XInputPowerOffController(DWORD dwUserIndex) noexcept
+{
+    if (g_FpnPowerOffController)
+        return g_FpnPowerOffController(dwUserIndex);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 104 — XInputGetBaseBusInformation (undocumented)
+DWORD WINAPI XInputGetBaseBusInformation(DWORD dwUserIndex, DWORD dwFlags, XINPUT_BASE_BUS_INFORMATION *pBaseBusInformation) noexcept
+{
+    if (g_FpnGetBaseBusInformation)
+        return g_FpnGetBaseBusInformation(dwUserIndex, dwFlags, pBaseBusInformation);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 108 — XInputGetCapabilitiesEx (undocumented)
+DWORD WINAPI XInputGetCapabilitiesEx(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPABILITIES_EX *pCapabilitiesEx) noexcept
+{
+    if (g_FpnGetCapabilitiesEx)
+        return g_FpnGetCapabilitiesEx(dwUserIndex, dwFlags, pCapabilitiesEx);
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+// Ordinal 109 — XInputGetSystemButtons (undocumented)
+DWORD WINAPI XInputGetSystemButtons(DWORD dwUserIndex, XINPUT_KEYSTROKE *pKeystroke) noexcept
+{
+    if (g_FpnGetSystemButtons)
+        return g_FpnGetSystemButtons(dwUserIndex, pKeystroke);
+    return ERROR_DEVICE_NOT_CONNECTED;
 }

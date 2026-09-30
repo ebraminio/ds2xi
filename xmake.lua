@@ -26,4 +26,3 @@ target("main", function()
         set_strip("all")
     end
 end)
-
