@@ -354,6 +354,7 @@ public:
 			vigem_disconnect(vigemClient);
 			vigem_free(vigemClient);
 		}
+		hid_exit();
 	}
 };
 
@@ -442,6 +443,9 @@ int main(int argc, char *argv[])
 
 	Shell_NotifyIconW(NIM_DELETE, &notifyIconData);
 	DestroyIcon(notifyIconData.hIcon);
+
+	bridgeManager.~BridgeManager();
+	ExitProcess(ERROR_SUCCESS);
 
 	return 0;
 }
