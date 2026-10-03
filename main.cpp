@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
+#define DIRECTINPUT_VERSION 0x0800
 #include <windows.h>
-#include <mmsystem.h>
+#include <dinput.h>
 #include <shlwapi.h>
 #include <Xinput.h>
 #include <cstdint>
@@ -69,12 +70,13 @@ static PFN_XInputGetCapabilitiesEx g_FpnGetCapabilitiesEx = nullptr;
 static PFN_XInputGetSystemButtons g_FpnGetSystemButtons = nullptr;
 
 // ---------------------------------------------------------------------------
-// Controller state (first connected winmm joystick, e.g. DualSense as generic HID)
+// Controller state (first attached DirectInput8 game controller, e.g. DualSense as generic HID)
 // ---------------------------------------------------------------------------
 
-static UINT g_JoyId = 0;
+static HINSTANCE g_Module = nullptr;
+static IDirectInput8W *g_Di = nullptr;
+static IDirectInputDevice8W *g_Dev = nullptr;
 static bool g_JoyConnected = false;
-static JOYCAPSW g_JoyCaps;
 static DWORD g_PacketNumber = 0;
 
 // ---------------------------------------------------------------------------
@@ -136,45 +138,73 @@ static bool LoadSystemXInput()
 // Joystick discovery
 // ---------------------------------------------------------------------------
 
+static BOOL CALLBACK EnumJoystickCb(LPCDIDEVICEINSTANCEW inst, LPVOID)
+{
+    IDirectInputDevice8W *dev = nullptr;
+    if (FAILED(g_Di->CreateDevice(inst->guidInstance, &dev, nullptr)))
+        return DIENUM_CONTINUE;
+
+    if (FAILED(dev->SetDataFormat(&c_dfDIJoystick2)) ||
+        FAILED(dev->SetCooperativeLevel(GetDesktopWindow(), DISCL_BACKGROUND | DISCL_NONEXCLUSIVE)))
+    {
+        dev->Release();
+        return DIENUM_CONTINUE;
+    }
+
+    g_Dev = dev;
+    return DIENUM_STOP;
+}
+
+static void DisconnectJoystick()
+{
+    if (g_Dev)
+    {
+        g_Dev->Unacquire();
+        g_Dev->Release();
+        g_Dev = nullptr;
+    }
+    g_JoyConnected = false;
+}
+
 static void TryConnectJoystick()
 {
     if (g_JoyConnected)
         return;
 
-    const UINT count = joyGetNumDevs();
-    for (UINT id = 0; id < count; ++id)
-    {
-        JOYINFOEX info;
-        info.dwSize = sizeof(info);
-        info.dwFlags = JOY_RETURNBUTTONS;
-        if (joyGetPosEx(id, &info) != JOYERR_NOERROR)
-            continue;
-        if (joyGetDevCapsW(id, &g_JoyCaps, sizeof(g_JoyCaps)) != JOYERR_NOERROR)
-            continue;
-
-        g_JoyId = id;
-        g_JoyConnected = true;
+    // Games poll every frame; enumerating DirectInput that often is too costly
+    static DWORD lastAttempt = 0;
+    const DWORD now = GetTickCount();
+    if (lastAttempt != 0 && now - lastAttempt < 1000)
         return;
+    lastAttempt = now;
+
+    if (!g_Di && FAILED(DirectInput8Create(g_Module, DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                           reinterpret_cast<void **>(&g_Di), nullptr)))
+        return;
+
+    g_Di->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumJoystickCb, nullptr, DIEDFL_ATTACHEDONLY);
+    if (g_Dev)
+    {
+        g_Dev->Acquire();
+        g_JoyConnected = true;
     }
 }
 
-// Scales a raw axis into 0..range using the range the driver reports.
-static uint32_t ScaleAxis(DWORD value, UINT lo, UINT hi, uint32_t range)
+// Scales a raw axis (DirectInput default range 0..65535) into 0..range.
+static uint32_t ScaleAxis(LONG value, uint32_t range)
 {
-    if (hi <= lo)
-        return 0;
-    if (value < lo)
-        value = lo;
-    if (value > hi)
-        value = hi;
-    return (value - lo) * range / (hi - lo);
+    if (value < 0)
+        value = 0;
+    if (value > 65535)
+        value = 65535;
+    return static_cast<uint32_t>(value) * range / 65535;
 }
 
 // ---------------------------------------------------------------------------
-// winmm joystick -> XInput mapping (called directly from XInputGetState)
+// DirectInput8 -> XInput mapping (called directly from XInputGetState)
 //
-// Layout seen in joy.cpl for the DualSense: X/Y = left stick, Z/R = right stick,
-// V/U = L2/R2 (also buttons 7/8, ignored), POV = d-pad.
+// Layout seen in joy.cpl for the DualSense: X/Y = left stick, Z/Z rotation = right stick,
+// X/Y rotation = L2/R2 (also buttons 7/8, ignored), POV = d-pad.
 // ---------------------------------------------------------------------------
 
 static bool JoystickGetState(XINPUT_STATE &state)
@@ -182,53 +212,58 @@ static bool JoystickGetState(XINPUT_STATE &state)
     if (!g_JoyConnected)
         return false;
 
-    JOYINFOEX info;
-    info.dwSize = sizeof(info);
-    info.dwFlags = JOY_RETURNALL;
-    if (joyGetPosEx(g_JoyId, &info) != JOYERR_NOERROR)
+    HRESULT hr = g_Dev->Poll();
+    if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED)
     {
-        g_JoyConnected = false;
+        hr = g_Dev->Acquire();
+        if (SUCCEEDED(hr))
+            hr = g_Dev->Poll();
+    }
+
+    DIJOYSTATE2 js;
+    if (FAILED(hr) || FAILED(g_Dev->GetDeviceState(sizeof(js), &js)))
+    {
+        DisconnectJoystick();
         return false;
     }
 
     SecureZeroMemory(&state, sizeof(state));
     state.dwPacketNumber = ++g_PacketNumber;
 
-    const JOYCAPSW &c = g_JoyCaps;
-    state.Gamepad.sThumbLX = static_cast<SHORT>(static_cast<int>(ScaleAxis(info.dwXpos, c.wXmin, c.wXmax, 65535)) - 32768);
-    state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(info.dwYpos, c.wYmin, c.wYmax, 65535)));
-    state.Gamepad.sThumbRX = static_cast<SHORT>(static_cast<int>(ScaleAxis(info.dwZpos, c.wZmin, c.wZmax, 65535)) - 32768);
-    state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(info.dwRpos, c.wRmin, c.wRmax, 65535)));
-    state.Gamepad.bLeftTrigger = static_cast<BYTE>(ScaleAxis(info.dwVpos, c.wVmin, c.wVmax, 255));
-    state.Gamepad.bRightTrigger = static_cast<BYTE>(ScaleAxis(info.dwUpos, c.wUmin, c.wUmax, 255));
+    state.Gamepad.sThumbLX = static_cast<SHORT>(static_cast<int>(ScaleAxis(js.lX, 65535)) - 32768);
+    state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(js.lY, 65535)));
+    state.Gamepad.sThumbRX = static_cast<SHORT>(static_cast<int>(ScaleAxis(js.lZ, 65535)) - 32768);
+    state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(js.lRz, 65535)));
+    state.Gamepad.bLeftTrigger = static_cast<BYTE>(ScaleAxis(js.lRx, 255));
+    state.Gamepad.bRightTrigger = static_cast<BYTE>(ScaleAxis(js.lRy, 255));
 
     static const struct
     {
-        DWORD joyButton;
+        int joyButton;
         WORD xinputButton;
     } buttonMap[] = {
-        {1u << 0, XINPUT_GAMEPAD_X},              // square
-        {1u << 1, XINPUT_GAMEPAD_A},              // cross
-        {1u << 2, XINPUT_GAMEPAD_B},              // circle
-        {1u << 3, XINPUT_GAMEPAD_Y},              // triangle
-        {1u << 4, XINPUT_GAMEPAD_LEFT_SHOULDER},  // L1
-        {1u << 5, XINPUT_GAMEPAD_RIGHT_SHOULDER}, // R1
-        {1u << 8, XINPUT_GAMEPAD_BACK},           // create
-        {1u << 9, XINPUT_GAMEPAD_START},          // options
-        {1u << 10, XINPUT_GAMEPAD_LEFT_THUMB},    // L3
-        {1u << 11, XINPUT_GAMEPAD_RIGHT_THUMB},   // R3
-        {1u << 12, XINPUT_GAMEPAD_GUIDE},         // PS
+        {0, XINPUT_GAMEPAD_X},              // square
+        {1, XINPUT_GAMEPAD_A},              // cross
+        {2, XINPUT_GAMEPAD_B},              // circle
+        {3, XINPUT_GAMEPAD_Y},              // triangle
+        {4, XINPUT_GAMEPAD_LEFT_SHOULDER},  // L1
+        {5, XINPUT_GAMEPAD_RIGHT_SHOULDER}, // R1
+        {8, XINPUT_GAMEPAD_BACK},           // create
+        {9, XINPUT_GAMEPAD_START},          // options
+        {10, XINPUT_GAMEPAD_LEFT_THUMB},    // L3
+        {11, XINPUT_GAMEPAD_RIGHT_THUMB},   // R3
+        {12, XINPUT_GAMEPAD_GUIDE},         // PS
     };
     for (const auto &m : buttonMap)
     {
-        if (info.dwButtons & m.joyButton)
+        if (js.rgbButtons[m.joyButton] & 0x80)
             state.Gamepad.wButtons |= m.xinputButton;
     }
 
-    // POV is in hundredths of a degree, 0xFFFF (or any value >= 36000) when centered
-    if (info.dwPOV < 36000)
+    // POV is in hundredths of a degree, LOWORD 0xFFFF when centered
+    if (LOWORD(js.rgdwPOV[0]) != 0xFFFF)
     {
-        const DWORD pov = info.dwPOV;
+        const DWORD pov = js.rgdwPOV[0];
         if (pov >= 31500 || pov <= 4500)
             state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
         if (pov >= 4500 && pov <= 13500)
@@ -252,6 +287,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
     {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
+        g_Module = hModule;
         LoadSystemXInput();
         break;
 
@@ -305,7 +341,7 @@ DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration) noe
         if (!g_JoyConnected)
             TryConnectJoystick();
 
-        // winmm has no force feedback API, so vibration is accepted and dropped
+        // DirectInput has no force feedback for this device, so vibration is accepted and dropped
         if (g_JoyConnected)
             return ERROR_SUCCESS;
     }

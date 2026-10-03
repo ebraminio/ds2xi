@@ -6,7 +6,7 @@ if not defined VSCMD_VER call "C:\Program Files\Microsoft Visual Studio\18\Commu
 cl.exe -nologo -LD -W4 -Ox -GS- -std:c++20 ^
   -Fo".\\" -Fe".\XInput1_4.dll" main.cpp ^
   -link /ENTRY:DllMain /NODEFAULTLIB /SUBSYSTEM:WINDOWS ^
-  shlwapi.lib kernel32.lib winmm.lib ^
+  shlwapi.lib kernel32.lib user32.lib dinput8.lib dxguid.lib ^
   /def:xinput.def /implib:".\XInput1_4.lib" || exit /b 1
 
 endlocal
