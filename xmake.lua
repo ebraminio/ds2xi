@@ -1,25 +1,10 @@
 set_allowedplats("windows", "mingw")
 
-target("hidapi", function()
-    set_kind("static")
-    add_includedirs("hidapi/hidapi", {public = true})
-    add_defines("HID_API_NO_EXPORT_DEFINE", {public = true})
-    add_files("hidapi/windows/hid.c")
-    set_runtimes("none")
-    set_exceptions("none")
-    if is_plat("mingw") then
-        add_cflags("-fno-stack-protector", {force = true})
-    else
-        add_cxflags("-GS-", {force = true})
-    end
-end)
-
 target("main", function()
     set_kind("shared")
-    add_deps("hidapi")
     set_languages("c++20")
     add_files("main.cpp", "xinput.def")
-    add_syslinks("shlwapi", "kernel32", "user32")
+    add_syslinks("shlwapi", "kernel32", "winmm")
     set_runtimes("none")
     set_exceptions("none")
     set_basename("XInput1_4")

@@ -1,13 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <mmsystem.h>
 #include <shlwapi.h>
-#include <hidapi.h>
 #include <Xinput.h>
-#include <cstdio>
 #include <cstdint>
-#include <cmath>
-
-#include "crc32.h"
 
 // XINPUT_GAMEPAD_GUIDE is not defined in the official Xinput.h
 #define XINPUT_GAMEPAD_GUIDE 0x0400
@@ -73,32 +69,13 @@ static PFN_XInputGetCapabilitiesEx g_FpnGetCapabilitiesEx = nullptr;
 static PFN_XInputGetSystemButtons g_FpnGetSystemButtons = nullptr;
 
 // ---------------------------------------------------------------------------
-// DualSense state
+// Controller state (first connected winmm joystick, e.g. DualSense as generic HID)
 // ---------------------------------------------------------------------------
 
-static hid_device *g_DsDevice = nullptr;
-static bool g_DsConnected = false;
-static bool g_DsIsBluetooth = false;
+static UINT g_JoyId = 0;
+static bool g_JoyConnected = false;
+static JOYCAPSW g_JoyCaps;
 static DWORD g_PacketNumber = 0;
-
-// Rumble state
-static uint8_t g_SmallMotor = 0;
-static uint8_t g_LargeMotor = 0;
-
-// LED / color state
-static uint8_t g_LedNumber = 0;
-static DWORD g_Color = 0xFF0000; // Default blue
-static uint8_t g_BatteryLevel = 0;
-
-// DualSense constants
-static constexpr int SONY_VID = 0x054c;
-static constexpr int DS_PID = 0x0ce6;
-static constexpr int DS_EDGE_PID = 0x0df2;
-
-static constexpr unsigned USB_BUFFER_SIZE = 64;
-static constexpr unsigned BT_PAYLOAD_BUFFER_SIZE = 74;
-static constexpr unsigned BT_BUFFER_SIZE = 547;
-static constexpr unsigned BT_REPORT_ID = 0x31;
 
 // ---------------------------------------------------------------------------
 // Load system XInput
@@ -156,201 +133,110 @@ static bool LoadSystemXInput()
 }
 
 // ---------------------------------------------------------------------------
-// DualSense output report (rumble + LED)
+// Joystick discovery
 // ---------------------------------------------------------------------------
 
-static void AddCrcToBuffer(uint8_t *buffer)
+static void TryConnectJoystick()
 {
-    if (!g_DsIsBluetooth)
-        return;
-    buffer[0] = BT_REPORT_ID;
-    const uint32_t crc = computeCRC32(buffer, BT_PAYLOAD_BUFFER_SIZE);
-    buffer[BT_PAYLOAD_BUFFER_SIZE + 0] = (crc >> 0) & 0xFF;
-    buffer[BT_PAYLOAD_BUFFER_SIZE + 1] = (crc >> 8) & 0xFF;
-    buffer[BT_PAYLOAD_BUFFER_SIZE + 2] = (crc >> 16) & 0xFF;
-    buffer[BT_PAYLOAD_BUFFER_SIZE + 3] = (crc >> 24) & 0xFF;
-}
-
-static void SendDualSenseOutput()
-{
-    if (!g_DsDevice)
+    if (g_JoyConnected)
         return;
 
-    uint8_t buffer[BT_BUFFER_SIZE];
-    SecureZeroMemory(buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-
-    buffer[0 + g_DsIsBluetooth] = 0x02;
-    buffer[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
-    buffer[2 + g_DsIsBluetooth] = 0x55;
-
-    buffer[3 + g_DsIsBluetooth] = g_SmallMotor;
-    buffer[4 + g_DsIsBluetooth] = g_LargeMotor;
-
-    buffer[39 + g_DsIsBluetooth] = 0x02;
-    buffer[42 + g_DsIsBluetooth] = 0x02;
-    buffer[43 + g_DsIsBluetooth] = 0x02;
-
-    buffer[45 + g_DsIsBluetooth] = (g_Color >> 0) & 0xFF;
-    buffer[46 + g_DsIsBluetooth] = (g_Color >> 8) & 0xFF;
-    buffer[47 + g_DsIsBluetooth] = (g_Color >> 16) & 0xFF;
-
-    if (g_LedNumber == 0)
-        buffer[44 + g_DsIsBluetooth] = (g_BatteryLevel == 0)     ? 0
-                                       : (g_BatteryLevel >= 100) ? 31
-                                                                 : (1 << ((g_BatteryLevel * 5) / 100)) - 1;
-    else
-        buffer[44 + g_DsIsBluetooth] = g_LedNumber;
-
-    AddCrcToBuffer(buffer);
-    hid_write(g_DsDevice, buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-}
-
-static void CleanControllerState()
-{
-    uint8_t outputHID[BT_BUFFER_SIZE];
-    SecureZeroMemory(outputHID, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
-    outputHID[0 + g_DsIsBluetooth] = 0x02;
-    outputHID[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
-    outputHID[2 + g_DsIsBluetooth] = 0x55;
-    AddCrcToBuffer(outputHID);
-    hid_write(g_DsDevice, outputHID, g_DsIsBluetooth ? sizeof(outputHID) : USB_BUFFER_SIZE);
-}
-
-// ---------------------------------------------------------------------------
-// DualSense enumeration
-// ---------------------------------------------------------------------------
-
-static bool IsDualSenseDevice(hid_device_info *info)
-{
-    return info->vendor_id == SONY_VID &&
-           (info->product_id == DS_PID || info->product_id == DS_EDGE_PID);
-}
-
-static void TryConnectDualSense()
-{
-    if (g_DsConnected)
-        return;
-
-    hid_device_info *devices = hid_enumerate(SONY_VID, 0);
-    if (!devices)
-        return;
-
-    for (hid_device_info *cur = devices; cur; cur = cur->next)
+    const UINT count = joyGetNumDevs();
+    for (UINT id = 0; id < count; ++id)
     {
-        if (!IsDualSenseDevice(cur))
+        JOYINFOEX info;
+        info.dwSize = sizeof(info);
+        info.dwFlags = JOY_RETURNBUTTONS;
+        if (joyGetPosEx(id, &info) != JOYERR_NOERROR)
+            continue;
+        if (joyGetDevCapsW(id, &g_JoyCaps, sizeof(g_JoyCaps)) != JOYERR_NOERROR)
             continue;
 
-        hid_device *dev = hid_open_path(cur->path);
-        if (!dev)
-            continue;
-
-        g_DsDevice = dev;
-        g_DsIsBluetooth = cur->interface_number == -1;
-        g_DsConnected = true;
-        g_BatteryLevel = 0;
-
-        hid_set_nonblocking(dev, true);
-        SendDualSenseOutput();
-
-        hid_free_enumeration(devices);
+        g_JoyId = id;
+        g_JoyConnected = true;
         return;
     }
+}
 
-    hid_free_enumeration(devices);
+// Scales a raw axis into 0..range using the range the driver reports.
+static uint32_t ScaleAxis(DWORD value, UINT lo, UINT hi, uint32_t range)
+{
+    if (hi <= lo)
+        return 0;
+    if (value < lo)
+        value = lo;
+    if (value > hi)
+        value = hi;
+    return (value - lo) * range / (hi - lo);
 }
 
 // ---------------------------------------------------------------------------
-// DualSense input → XInput mapping (called directly from XInputGetState)
+// winmm joystick -> XInput mapping (called directly from XInputGetState)
+//
+// Layout seen in joy.cpl for the DualSense: X/Y = left stick, Z/R = right stick,
+// V/U = L2/R2 (also buttons 7/8, ignored), POV = d-pad.
 // ---------------------------------------------------------------------------
 
-static bool DualSenseGetState(XINPUT_STATE &state)
+static bool JoystickGetState(XINPUT_STATE &state)
 {
-    if (!g_DsDevice)
+    if (!g_JoyConnected)
         return false;
 
-    uint8_t buffer[574];
-    int bytesRead = hid_read(g_DsDevice, buffer, sizeof(buffer));
-
-    if (bytesRead <= 0)
-        return false;
-
-    if (bytesRead < 55)
-        return false;
-
-    bool bt = g_DsIsBluetooth;
-    int off = bt ? 1 : 0;
-
-    // Battery level
-    uint8_t newBatteryRaw = ((buffer[53 + off] & 15) * 25) / 2;
-    uint8_t newBattery = newBatteryRaw < 100 ? newBatteryRaw : 100;
-    if (newBattery != g_BatteryLevel)
+    JOYINFOEX info;
+    info.dwSize = sizeof(info);
+    info.dwFlags = JOY_RETURNALL;
+    if (joyGetPosEx(g_JoyId, &info) != JOYERR_NOERROR)
     {
-        g_BatteryLevel = newBattery;
-        SendDualSenseOutput();
+        g_JoyConnected = false;
+        return false;
     }
 
-    // Build XInput state
     SecureZeroMemory(&state, sizeof(state));
     state.dwPacketNumber = ++g_PacketNumber;
 
-    state.Gamepad.sThumbLX = static_cast<SHORT>((buffer[1 + off] * 257) - 32768);
-    state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - (buffer[2 + off] * 257));
-    state.Gamepad.sThumbRX = static_cast<SHORT>((buffer[3 + off] * 257) - 32768);
-    state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - (buffer[4 + off] * 257));
+    const JOYCAPSW &c = g_JoyCaps;
+    state.Gamepad.sThumbLX = static_cast<SHORT>(static_cast<int>(ScaleAxis(info.dwXpos, c.wXmin, c.wXmax, 65535)) - 32768);
+    state.Gamepad.sThumbLY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(info.dwYpos, c.wYmin, c.wYmax, 65535)));
+    state.Gamepad.sThumbRX = static_cast<SHORT>(static_cast<int>(ScaleAxis(info.dwZpos, c.wZmin, c.wZmax, 65535)) - 32768);
+    state.Gamepad.sThumbRY = static_cast<SHORT>(32767 - static_cast<int>(ScaleAxis(info.dwRpos, c.wRmin, c.wRmax, 65535)));
+    state.Gamepad.bLeftTrigger = static_cast<BYTE>(ScaleAxis(info.dwVpos, c.wVmin, c.wVmax, 255));
+    state.Gamepad.bRightTrigger = static_cast<BYTE>(ScaleAxis(info.dwUpos, c.wUmin, c.wUmax, 255));
 
-    state.Gamepad.bLeftTrigger = buffer[5 + off];
-    state.Gamepad.bRightTrigger = buffer[6 + off];
-
-    if (buffer[8 + off] & (1 << 4))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_X;
-    if (buffer[8 + off] & (1 << 5))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_A;
-    if (buffer[8 + off] & (1 << 6))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_B;
-    if (buffer[8 + off] & (1 << 7))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
-    if (buffer[9 + off] & (1 << 0))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
-    if (buffer[9 + off] & (1 << 1))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
-    if (buffer[9 + off] & (1 << 4))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_BACK;
-    if (buffer[9 + off] & (1 << 5))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_START;
-    if (buffer[9 + off] & (1 << 6))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
-    if (buffer[9 + off] & (1 << 7))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
-    if (buffer[10 + off] & (1 << 0))
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_GUIDE;
-
-    uint8_t dpad = buffer[8 + off] & 0x0f;
-    switch (dpad)
+    static const struct
     {
-    case 0:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
-        break;
-    case 1:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT;
-        break;
-    case 2:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
-        break;
-    case 3:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_RIGHT;
-        break;
-    case 4:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
-        break;
-    case 5:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT;
-        break;
-    case 6:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
-        break;
-    case 7:
-        state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_LEFT;
-        break;
+        DWORD joyButton;
+        WORD xinputButton;
+    } buttonMap[] = {
+        {1u << 0, XINPUT_GAMEPAD_X},              // square
+        {1u << 1, XINPUT_GAMEPAD_A},              // cross
+        {1u << 2, XINPUT_GAMEPAD_B},              // circle
+        {1u << 3, XINPUT_GAMEPAD_Y},              // triangle
+        {1u << 4, XINPUT_GAMEPAD_LEFT_SHOULDER},  // L1
+        {1u << 5, XINPUT_GAMEPAD_RIGHT_SHOULDER}, // R1
+        {1u << 8, XINPUT_GAMEPAD_BACK},           // create
+        {1u << 9, XINPUT_GAMEPAD_START},          // options
+        {1u << 10, XINPUT_GAMEPAD_LEFT_THUMB},    // L3
+        {1u << 11, XINPUT_GAMEPAD_RIGHT_THUMB},   // R3
+        {1u << 12, XINPUT_GAMEPAD_GUIDE},         // PS
+    };
+    for (const auto &m : buttonMap)
+    {
+        if (info.dwButtons & m.joyButton)
+            state.Gamepad.wButtons |= m.xinputButton;
+    }
+
+    // POV is in hundredths of a degree, 0xFFFF (or any value >= 36000) when centered
+    if (info.dwPOV < 36000)
+    {
+        const DWORD pov = info.dwPOV;
+        if (pov >= 31500 || pov <= 4500)
+            state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP;
+        if (pov >= 4500 && pov <= 13500)
+            state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+        if (pov >= 13500 && pov <= 22500)
+            state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN;
+        if (pov >= 22500 && pov <= 31500)
+            state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
     }
 
     return true;
@@ -367,17 +253,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
         LoadSystemXInput();
-        hid_init();
         break;
 
     case DLL_PROCESS_DETACH:
-        if (g_DsDevice)
-        {
-            CleanControllerState();
-            hid_close(g_DsDevice);
-            g_DsDevice = nullptr;
-        }
-        hid_exit();
         if (g_SystemXInput)
         {
             FreeLibrary(g_SystemXInput);
@@ -404,11 +282,10 @@ DWORD WINAPI XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState) noexcept
         if (!pState)
             return ERROR_INVALID_PARAMETER;
 
-        // Try to connect if not already connected
-        if (!g_DsConnected)
-            TryConnectDualSense();
+        if (!g_JoyConnected)
+            TryConnectJoystick();
 
-        if (g_DsConnected && pState && DualSenseGetState(*pState))
+        if (g_JoyConnected && JoystickGetState(*pState))
             return ERROR_SUCCESS;
     }
 
@@ -425,20 +302,12 @@ DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration) noe
         if (!pVibration)
             return ERROR_INVALID_PARAMETER;
 
-        if (!g_DsConnected)
-            TryConnectDualSense();
+        if (!g_JoyConnected)
+            TryConnectJoystick();
 
-        if (g_DsConnected)
-        {
-            uint32_t sm = pVibration->wRightMotorSpeed / 257;
-            g_SmallMotor = pVibration->wRightMotorSpeed ? static_cast<uint8_t>(sm < 64 ? 64 : sm) : 0;
-            uint32_t lm = pVibration->wLeftMotorSpeed / 257;
-            g_LargeMotor = pVibration->wLeftMotorSpeed  ? static_cast<uint8_t>(lm < 40 ? 40 : lm) : 0;
-
-            g_LedNumber = 0;
-            SendDualSenseOutput();
+        // winmm has no force feedback API, so vibration is accepted and dropped
+        if (g_JoyConnected)
             return ERROR_SUCCESS;
-        }
     }
 
     if (g_FpnSetState)
@@ -456,10 +325,10 @@ DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPA
         if (dwFlags != 0 && dwFlags != XINPUT_FLAG_GAMEPAD)
             return ERROR_BAD_ARGUMENTS;
 
-        if (!g_DsConnected)
-            TryConnectDualSense();
+        if (!g_JoyConnected)
+            TryConnectJoystick();
 
-        if (g_DsConnected)
+        if (g_JoyConnected)
         {
             SecureZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
             pCapabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
@@ -511,15 +380,8 @@ DWORD WINAPI XInputGetBatteryInformation(DWORD dwUserIndex, BYTE devType, XINPUT
     {
         if (pBatteryInformation)
         {
-            pBatteryInformation->BatteryType = BATTERY_TYPE_NIMH; // It's actually litium polymer but this is best matching
-            if (g_BatteryLevel <= 10)
-                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_EMPTY;
-            else if (g_BatteryLevel <= 35)
-                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_LOW;
-            else if (g_BatteryLevel <= 75)
-                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_MEDIUM;
-            else
-                pBatteryInformation->BatteryLevel = BATTERY_LEVEL_FULL;
+            pBatteryInformation->BatteryType = BATTERY_TYPE_WIRED;
+            pBatteryInformation->BatteryLevel = BATTERY_LEVEL_FULL;
             return ERROR_SUCCESS;
         }
     }
