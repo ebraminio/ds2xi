@@ -25,14 +25,17 @@ typedef struct _XINPUT_BASE_BUS_INFORMATION
     DWORD dwSerialNumber;
 } XINPUT_BASE_BUS_INFORMATION;
 
+#ifndef __WINE_XINPUT_H
 typedef struct _XINPUT_CAPABILITIES_EX
 {
     XINPUT_CAPABILITIES Capabilities;
-    WORD vendorId;
-    WORD productId;
-    WORD revisionId;
-    DWORD reserved[2];
+    WORD  VendorId;
+    WORD  ProductId;
+    WORD  VersionNumber;
+    WORD  unk1;
+    DWORD unk2;
 } XINPUT_CAPABILITIES_EX;
+#endif
 
 // ---------------------------------------------------------------------------
 // System XInput function pointers
@@ -106,11 +109,13 @@ static bool LoadSystemXInput()
     if (g_SystemXInput)
         return true;
 
-    char sysDir[MAX_PATH] = {};
+    char sysDir[MAX_PATH];
+    SecureZeroMemory(sysDir, sizeof(sysDir));
     if (GetSystemDirectoryA(sysDir, MAX_PATH) == 0)
         return false;
 
-    char fullPath[MAX_PATH] = {};
+    char fullPath[MAX_PATH];
+    SecureZeroMemory(fullPath, sizeof(fullPath));
     if (!PathCombineA(fullPath, sysDir, "XInput1_4.dll"))
         return false;
 
@@ -172,7 +177,7 @@ static void SendDualSenseOutput()
         return;
 
     uint8_t buffer[BT_BUFFER_SIZE];
-    ZeroMemory(buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+    SecureZeroMemory(buffer, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
 
     buffer[0 + g_DsIsBluetooth] = 0x02;
     buffer[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
@@ -203,7 +208,7 @@ static void SendDualSenseOutput()
 static void CleanControllerState()
 {
     uint8_t outputHID[BT_BUFFER_SIZE];
-    ZeroMemory(outputHID, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
+    SecureZeroMemory(outputHID, g_DsIsBluetooth ? BT_BUFFER_SIZE : USB_BUFFER_SIZE);
     outputHID[0 + g_DsIsBluetooth] = 0x02;
     outputHID[1 + g_DsIsBluetooth] = 0x03 | 0x04 | 0x08;
     outputHID[2 + g_DsIsBluetooth] = 0x55;
@@ -276,8 +281,8 @@ static bool DualSenseGetState(XINPUT_STATE &state)
     int off = bt ? 1 : 0;
 
     // Battery level
-    double newBatteryRaw = (buffer[53 + off] & 15) * 12.5;
-    uint8_t newBattery = newBatteryRaw < 100.0 ? static_cast<uint8_t>(newBatteryRaw) : 100;
+    uint8_t newBatteryRaw = ((buffer[53 + off] & 15) * 25) / 2;
+    uint8_t newBattery = newBatteryRaw < 100 ? newBatteryRaw : 100;
     if (newBattery != g_BatteryLevel)
     {
         g_BatteryLevel = newBattery;
@@ -285,7 +290,7 @@ static bool DualSenseGetState(XINPUT_STATE &state)
     }
 
     // Build XInput state
-    ZeroMemory(&state, sizeof(state));
+    SecureZeroMemory(&state, sizeof(state));
     state.dwPacketNumber = ++g_PacketNumber;
 
     state.Gamepad.sThumbLX = static_cast<SHORT>((buffer[1 + off] * 257) - 32768);
@@ -425,9 +430,11 @@ DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration) noe
 
         if (g_DsConnected)
         {
-            g_SmallMotor = pVibration->wRightMotorSpeed > 0 ? 0xFF : 0;
-            g_LargeMotor = static_cast<uint8_t>(
-                (static_cast<float>(pVibration->wLeftMotorSpeed) / 65535.0f) * 255.0f);
+            uint32_t sm = pVibration->wRightMotorSpeed / 257;
+            g_SmallMotor = pVibration->wRightMotorSpeed ? static_cast<uint8_t>(sm < 64 ? 64 : sm) : 0;
+            uint32_t lm = pVibration->wLeftMotorSpeed / 257;
+            g_LargeMotor = pVibration->wLeftMotorSpeed  ? static_cast<uint8_t>(lm < 40 ? 40 : lm) : 0;
+
             g_LedNumber = 0;
             SendDualSenseOutput();
             return ERROR_SUCCESS;
@@ -454,7 +461,7 @@ DWORD WINAPI XInputGetCapabilities(DWORD dwUserIndex, DWORD dwFlags, XINPUT_CAPA
 
         if (g_DsConnected)
         {
-            ZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
+            SecureZeroMemory(pCapabilities, sizeof(XINPUT_CAPABILITIES));
             pCapabilities->Type = XINPUT_DEVTYPE_GAMEPAD;
             pCapabilities->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
             pCapabilities->Flags = XINPUT_CAPS_FFB_SUPPORTED;

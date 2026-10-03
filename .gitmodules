@@ -1,4 +1,3 @@
 [submodule "hidapi"]
 	path = hidapi
-	url = https://github.com/libusb/hidapi
-	branch = connection-callback-2
+	url = https://github.com/ebraminio/hidapi-crtfree
